@@ -35,14 +35,24 @@ ROOT = Path(__file__).resolve().parents[1]
 FONT_PATH = ROOT / "assets" / "fonts" / "DejaVuSansMono.ttf"
 
 
-# ------------------------------------------
-# Theme (Glyph-first, with future fallbacks)
-# ------------------------------------------
+# ---------------------------------------------------
+# Theme (Glyph-first + Colors, with future fallbacks)
+# ---------------------------------------------------
 THEME = {
-    "plains": "·",
-    "forest": "♣",
-    "water": "≈",
-    "hill": "▲"
+    "plains": ("·", (120, 170, 120)),
+    "forest": ("♣", (60, 140, 60)),
+    "water": ("≈", (80, 130, 200)),
+    "hill": ("▲", (170, 150, 110)),
+}
+
+UI = {
+    "frame_fg": (200, 200, 200),
+    "title_fg": (230, 230, 230),
+    "text_fg": (210, 210, 210),
+    "muted_fg": (160, 160, 160),
+    "cursor_fg": (0, 0, 0),
+    "cursor_bg": (230, 230, 230),
+    "log_fg": (240, 240, 200)
 }
 
 
@@ -97,13 +107,16 @@ def make_world(seed: int) -> np.ndarray:
     return world
 
 
-def terrain_glyph(code: int) -> str:
-    return {
-        0: THEME["plains"],
-        1: THEME["forest"],
-        2: THEME["water"],
-        3: THEME["hill"],
-    }.get(int(code), "?")
+def terrain_style(code: int) -> tuple[str, tuple[int, int, int]]:
+    if int(code) == 0:
+        return THEME["plains"]
+    if int(code) == 1:
+        return THEME["forest"]
+    if int(code) == 2:
+        return THEME["water"]
+    if int(code) == 3:
+        return THEME["hill"]
+    return "?", (255, 50, 50)
 
 
 def update(gs: GameState) -> None:
@@ -115,38 +128,60 @@ def update(gs: GameState) -> None:
         add_log(gs, f"Tick {gs.tick}: the world continues...")
 
 
+def draw_frame(console: tcod.console.Console, x: int, y: int, w: int, h: int, title: str) -> None:
+    """
+    Small helper to avoid deprecated title usage in draw_frame.
+    Uses box-drawingcharacters and prints a centered title.
+    """
+    fg = UI["frame_fg"]
+    # corners + edges
+    console.print(x, y, "┌" + "─" * (w - 2) + "┐", fg=fg)
+    for row in range(1, h - 1):
+        console.print(x, y + row, "│", fg=fg)
+        console.print(x + w - 1, y + row, "│", fg=fg)
+    console.print(x, y + h - 1,  "└" + "─" * (w - 2) + "┘", fg=fg)
+
+    # title
+    if title:
+        t = f" {title} "
+        start = x + max(1, (w - len(t)) // 2)
+        if start + len(t) < x < w - 1:
+            console.print(start, y, t, fg=UI["title_fg"], bg=None)
+
+
 def render(console: tcod.console.Console, world: np.ndarray, gs: GameState) -> None:
     console.clear()
 
     # Map
     for y in range(MAP_H):
         for x in range(MAP_W):
-            console.print(x, y, terrain_glyph(world[y, x]))
+            ch, fg = terrain_style(world[y, x])
+            console.print(x, y, ch, fg=fg)
 
     # Cursor highlight
     cx, cy = gs.cursor
     if 0 <= cx < MAP_W and 0 <= cy < MAP_H:
-        ch = terrain_glyph(world[cy, cx])
-        console.print(cx, cy, ch, fg=(0, 0, 0), bg=(200, 200, 200))
+        cg, _fg = terrain_style(world[cy, cx])
+        console.print(cx, cy, ch, fg=UI["cursor_fg"], bg=UI["cursor_bg"])
 
     # Right panel
     panel_x = MAP_W
-    console.draw_frame(panel_x, 0, PANEL_W, MAP_H, title=" Civarium ", clear=False)
+    draw_frame(console, panel_x, 0, PANEL_W, MAP_H, "Civarium")
 
     px = panel_x + 2
-    console.print(px, 2, f"Seed: {gs.seed}")
-    console.print(px, 3, f"Tick: {gs.tick}")
-    console.print(px, 4, f"Paused: {gs.paused}")
-    console.print(px, 5, f"Speed: {gs.tps:.1f} tps")
+    console.print(px, 2, f"Seed: {gs.seed}", fg=UI["text_fg"])
+    console.print(px, 3, f"Tick: {gs.tick}", fg=UI["text_fg"])
+    console.print(px, 4, f"Paused: {gs.paused}", fg=UI["text_fg"])
+    console.print(px, 5, f"Speed: {gs.tps:.1f} tps", fg=UI["text_fg"])
 
-    console.print(px, 7, "Controls:")
-    console.print(px, 8, "Space: pause")
-    console.print(px, 9, "+/- : speed")
-    console.print(px, 10, "Arrows: cursor")
-    console.print(px, 11, "R: restart")
-    console.print(px, 12, "Q: quit")
+    console.print(px, 7, "Controls:", fg=UI["title_fg"])
+    console.print(px, 8, "Space: pause", fg=UI["muted_fg"])
+    console.print(px, 9, "+/- : speed", fg=UI["muted_fg"])
+    console.print(px, 10, "Arrows: cursor", fg=UI["muted_fg"])
+    console.print(px, 11, "R: restart", fg=UI["muted_fg"])
+    console.print(px, 12, "Q: quit", fg=UI["muted_fg"])
 
-    console.print(px, 14, "Inspect:")
+    console.print(px, 14, "Inspect:", fg=UI["title_fg"])
     if 0 <= cx < MAP_W and 0 <= cy < MAP_H:
         code = int(world[cy, cx])
         tname = {0: "Plains", 1: "Forest", 2: "Water", 3: "Hill"}.get(code, "Unknown")
@@ -154,8 +189,101 @@ def render(console: tcod.console.Console, world: np.ndarray, gs: GameState) -> N
 
     # Bottom log
     log_y = MAP_H
-    console.draw_frame(0, log_y, SCREEN_W, LOG_H, title=" Log ", clear=False)
+    draw_frame(console, 0, log_y, SCREEN_W, LOG_H, "Log")
     for i, line in enumerate(list(gs.log)[: LOG_H - 2]):
-        console.print(2, log_y + 1 + i, line)
+        console.print(2, log_y + 1 + i, line, fg=UI["log_fg"])
 
 
+def main() -> None:
+    if not FONT_PATH.exists():
+        raise FileNotFoundError(
+            f"Font file not found at {FONT_PATH}. Put a monospace .ttf there (e.g., DejaVuSansMono.ttf)."
+        )
+
+    gs = GameState(seed=int(time.time()) % 100_000)
+    world = make_world(gs.seed)
+    add_log(gs, "Civarium booted.")
+    add_log(gs, "Space pauses. R restarts.")
+
+    tileset = tcod.tileset.load_truetype_font(
+        str(FONT_PATH),
+        tile_width=16,
+        tile_height=16,
+    )
+
+    with tcod.context.new(
+        columns=SCREEN_W,
+        rows=SCREEN_H,
+        tileset=tileset,
+        title="Civarium",
+        vsync=True
+    ) as context:
+        console = tcod.console.Console(SCREEN_W, SCREEN_H, order="F")
+
+        last_time = time.perf_counter()
+        acc = 0.0
+
+        while True:
+            # Input
+            for event in tcod.event.wait(timeout=0.0):
+                if event.type == "QUIT":
+                    raise SystemExit()
+
+                if event.type == "KEYDOWN":
+                    key = event.sym
+
+                    if key in (tcod.event.K_q, tcod.event.K_ESCAPE):
+                        raise SystemExit()
+
+                    if key == tcod.event.K_SPACE:
+                        gs.paused = not gs.paused
+                        add_log(gs, "Paused." if gs.paused else "Resumed.")
+
+                    elif key in (tcod.event.K_PLUS, tcod.event.K_KP_PLUS, tcod.event.K_EQUALS):
+                        gs.tps = min(60.0, gs.tps + 2.0)
+                        add_log(gs, f"Speed: {gs.tps:.1f} tps")
+
+                    elif key in (tcod.event.K_MINUS, tcod.event.K_KP_MINUS):
+                        gs.tps = max(1.0, gs.tps - 2.0)
+                        add_log(gs, f"Speed: {gs.tps:.1f} tps")
+
+                    elif key == tcod.event.K_r:
+                        gs.seed = int(time.time()) % 100_000
+                        gs.tick = 0
+                        gs.paused = False
+                        gs.log.clear()
+                        add_log(gs, f"Restarted (seed {gs.seed}).")
+                        world = make_world(gs.seed)
+
+                    elif key == tcod.event.K_LEFT:
+                        x, y = gs.cursor
+                        gs.cursor = (clamp(x - 1, 0, MAP_W - 1), y)
+                    elif key == tcod.event.K_RIGHT:
+                        x, y = gs.cursor
+                        gs.cursor = (clamp(x + 1, 0, MAP_W - 1), y)
+                    elif key == tcod.event.K_UP:
+                        x, y = gs.cursor
+                        gs.cursor = (x, clamp(y - 1, 0, MAP_H - 1))
+                    elif key == tcod.event.K_DOWN:
+                        x, y = gs.cursor
+                        gs.cursor = (x, clamp(y + 1, 0, MAP_H - 1))
+
+            # Timing
+            now = time.perf_counter()
+            dt = now - last_time
+            last_time = now
+            acc += dt
+
+            step = 1.0 / max(1.0, gs.tps)
+            while acc >= step:
+                update(gs)
+                acc -= step
+
+            render(console, world, gs)
+            context.present(console)
+
+            time.sleep(1.0 / FPS_CAP)
+
+
+if __name__ == "__main__":
+    main()
