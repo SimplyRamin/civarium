@@ -33,6 +33,9 @@ FPS_CAP = 60
 # -------------------
 ROOT = Path(__file__).resolve().parents[1]
 FONT_PATH = ROOT / "assets" / "fonts" / "DejaVuSansMono.ttf"
+TILESET_PATH = ROOT / "assets" / "tilesets" / "Alloy_curses_12x12.png"
+# TILESET_PATH = ROOT / "assets" / "tilesets" / "Aesomatica_16x16.png"
+# TILESET_PATH = ROOT / "assets" / "tilesets" / "Redjack17.png"
 
 
 # ---------------------------------------------------
@@ -212,7 +215,7 @@ def spawn_peasants(gs: GameState, world: np.ndarray, n: int | None = None) -> No
             x = int(cx + rng.integers(-6, 7))
             y = int(cy + rng.integers(-6, 7))
             if 0 <= x < MAP_W and 0 <= y < MAP_H and int(world[y, x]) != 2:     # not water
-                gs.actors.append(Actor(x=x, y=y, glyph="●", fg=(230, 230, 230)))
+                gs.actors.append(Actor(x=x, y=y, glyph="@", fg=(230, 230, 230)))
                 break
 
 
@@ -327,10 +330,11 @@ def main() -> None:
     add_log(gs, "Civarium booted.")
     add_log(gs, "Space pauses. R restarts.")
 
-    tileset = tcod.tileset.load_truetype_font(
-        str(FONT_PATH),
-        tile_width=16,
-        tile_height=16,
+    tileset = tcod.tileset.load_tilesheet(
+        str(TILESET_PATH),
+        columns=16,
+        rows=16,
+        charmap=tcod.tileset.CHARMAP_CP437,
     )
 
     with tcod.context.new(
@@ -404,7 +408,7 @@ def main() -> None:
                 acc -= step
 
             render(console, world, gs)
-            context.present(console)
+            context.present(console, integer_scaling=True)
 
             time.sleep(1.0 / FPS_CAP)
 
