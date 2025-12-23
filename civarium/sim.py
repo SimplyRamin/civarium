@@ -1,0 +1,93 @@
+# =================================================================================================
+#                                           Written by Ramin F.
+#                                      AI Engineer & Data Scientist
+#                            Ferdos.ramin@gmail.com | simplyramin.github.io
+# =================================================================================================
+import time
+from collections import deque
+from dataclasses import dataclass, field
+from typing import Deque, Tuple
+
+import numpy as np
+
+from .worldgen import MAP_W, MAP_H
+
+LOG_H = 8
+
+
+# -------------------
+# State
+# -------------------
+@dataclass
+class Actor:
+    x: int
+    y: int
+    glyph: str
+    fg: tuple[int, int, int]
+
+
+@dataclass
+class GameState:
+    seed: int
+    tick: int = 0
+    paused: bool = False
+    tps: float = 10.0       # ticks per second
+    log: Deque[str] = field(default_factory=lambda: deque(maxlen=LOG_H))
+    cursor: Tuple[int, int] = (MAP_W // 2, MAP_H // 2)
+    actors: list["Actor"] = field(default_factory=list)
+
+
+def add_log(gs: GameState, msg: str) -> None:
+    gs.log.appendleft(msg)
+
+
+def spawn_peasants(gs: GameState, world: np.ndarray, n: int | None = None) -> None:
+    """
+    Spawn peasants near the center, avoiding water.
+    If n is None, choose a deterministic random count based on seed.
+    """
+    rng = np.random.default_rng(gs.seed + 999)
+    if n is None:
+        n = int(rng.integers(8, 19))
+    cx, cy = MAP_W // 2, MAP_H // 2
+
+    for _ in range(n):
+        for _attempt in range(80):
+            x = int(cx + rng.integers(-6, 7))
+            y = int(cy + rng.integers(-6, 7))
+            if 0 <= x < MAP_W and 0 <= y < MAP_H and int(world[y, x]) != 2:     # not water
+                gs.actors.append(Actor(x=x, y=y, glyph="@", fg=(230, 230, 230)))
+                break
+
+
+def reset_run(gs: GameState, world: np.ndarray) -> None:
+    gs.tick = 0
+    gs.paused = False
+    gs.log.clear()
+    gs.actors.clear()
+    spawn_peasants(gs, world)
+
+
+def update(gs: GameState, world: np.ndarray) -> list[str]:
+    if gs.paused:
+        return []
+
+    gs.tick += 1
+    events: list[str] = []
+
+    rng = np.random.default_rng(gs.seed + gs.tick)
+    for a in gs.actors:
+        dx = int(rng.integers(-1, 2))
+        dy = int(rng.integers(-1, 2))
+        nx, ny = a.x + dx, a.y + dy
+        if 0 <= nx < MAP_W and 0 <= ny < MAP_H and int(world[ny, nx]) != 2:
+            a.x, a.y = nx, ny
+
+    if gs.tick % int(max(1, gs.tps)) == 0:
+        events.append(f"Tick {gs.tick}: peasants wander...")
+
+    return events
+
+
+def new_game_state() -> GameState:
+    return GameState(seed=int(time.time()) % 100_000)
