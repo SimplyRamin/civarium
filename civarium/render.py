@@ -8,7 +8,7 @@ from __future__ import annotations
 import numpy as np
 import tcod
 
-from .sim import GameState
+from .sim import GameState, FORUM, HOUSE, ROAD
 from .worldgen import MAP_W, MAP_H
 
 PANEL_W = 30
@@ -39,6 +39,8 @@ UI = {
 
 BUILDING_GLYPHS = {
     1: ("#", (200, 180, 120)),      # Forum
+    2: ("⌂", (180, 160, 120)),      # House
+    3: ("=", (140, 140, 140)),      # Road
 }
 
 
@@ -121,19 +123,21 @@ def render(console: tcod.console.Console, world: np.ndarray, gs: GameState) -> N
     console.print(px, 3, f"Tick: {gs.tick}", fg=UI["text_fg"])
     console.print(px, 4, f"Paused: {gs.paused}", fg=UI["text_fg"])
     console.print(px, 5, f"Speed: {gs.tps:.1f} tps", fg=UI["text_fg"])
+    console.print(px, 6, f"Food: {gs.food:.1f}", fg=UI["text_fg"])
+    console.print(px, 7, f"Morale: {gs.morale:.2f}", fg=UI["text_fg"])
 
-    console.print(px, 7, "Controls:", fg=UI["title_fg"])
-    console.print(px, 8, "Space: pause", fg=UI["muted_fg"])
-    console.print(px, 9, "+/- : speed", fg=UI["muted_fg"])
-    console.print(px, 10, "Arrows: cursor", fg=UI["muted_fg"])
-    console.print(px, 11, "R: restart", fg=UI["muted_fg"])
-    console.print(px, 12, "Q: quit", fg=UI["muted_fg"])
+    console.print(px, 8, "Controls:", fg=UI["title_fg"])
+    console.print(px, 9, "Space: pause", fg=UI["muted_fg"])
+    console.print(px, 10, "+/- : speed", fg=UI["muted_fg"])
+    console.print(px, 11, "Arrows: cursor", fg=UI["muted_fg"])
+    console.print(px, 12, "R: restart", fg=UI["muted_fg"])
+    console.print(px, 13, "Q: quit", fg=UI["muted_fg"])
 
     console.print(px, 14, "Inspect:", fg=UI["title_fg"])
     if 0 <= cx < MAP_W and 0 <= cy < MAP_H:
         b = gs.buildings.get((cx, cy))
         if b is not None:
-            bname = {1: "Forum"}.get(b, "Building")
+            bname = {1: "Forum", 2: "House", 3: "Road"}.get(b, "Building")
             console.print(px, 15, f"({cx},{cy}) {bname}", fg=UI["text_fg"])
         else:
             code = int(world[cy, cx])
