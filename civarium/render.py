@@ -97,21 +97,20 @@ def render(console: tcod.console.Console, world: np.ndarray, gs: GameState) -> N
     cx, cy = gs.cursor
     if 0 <= cx < MAP_W and 0 <= cy < MAP_H:
         # If an actor is on the cursor tile, highlight that actor glyph
-        actor_glyph = None
-        actor_fg = None
         for a in gs.actors:
             if a.x == cx and a.y == cy:
-                actor_glyph = a.glyph
-                actor_fg = a.fg
+                console.print(cx, cy, a.glyph, fg=UI["cursor_fg"], bg=UI["cursor_bg"])
                 break
-
-        if actor_glyph is not None:
-            # keep the actor glyph, just add cursor background
-            console.print(cx, cy, actor_glyph, fg=actor_fg, bg=UI["cursor_bg"])
         else:
-            # otherwise highligt the underlying terrain glyph/
-            ch, fg = terrain_style(world[cy, cx])
-            console.print(cx, cy, ch, fg=fg, bg=UI["cursor_bg"])
+            # building on tile?
+            b = gs.buildings.get((cx, cy))
+            if b is not None:
+                ch, fg = BUILDING_GLYPHS[b]
+                console.print(cx, cy, ch, fg=fg, bg=UI["cursor_bg"])
+            else:
+                # terrain
+                ch, fg = terrain_style(world[cy, cx])
+                console.print(cx, cy, ch, fg=fg, bg=UI["cursor_bg"])
 
     # Right panel
     panel_x = MAP_W
@@ -132,9 +131,14 @@ def render(console: tcod.console.Console, world: np.ndarray, gs: GameState) -> N
 
     console.print(px, 14, "Inspect:", fg=UI["title_fg"])
     if 0 <= cx < MAP_W and 0 <= cy < MAP_H:
-        code = int(world[cy, cx])
-        tname = {0: "Plains", 1: "Forest", 2: "Water", 3: "Hill"}.get(code, "Unknown")
-        console.print(px, 15, f"({cx}, {cy}) {tname}")
+        b = gs.buildings.get((cx, cy))
+        if b is not None:
+            bname = {1: "Forum"}.get(b, "Building")
+            console.print(px, 15, f"({cx},{cy}) {bname}", fg=UI["text_fg"])
+        else:
+            code = int(world[cy, cx])
+            tname = {0: "Plains", 1: "Forest", 2: "Water", 3: "Hill"}.get(code, "Unknown")
+            console.print(px, 15, f"({cx},{cy}) {tname}", fg=UI["text_fg"])
 
     # Bottom log
     log_y = MAP_H

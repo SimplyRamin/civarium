@@ -20,8 +20,8 @@ from .worldgen import make_world, MAP_H, MAP_W
 # -------------------
 ROOT = Path(__file__).resolve().parents[1]
 # FONT_PATH = ROOT / "assets" / "fonts" / "DejaVuSansMono.ttf"
-# TILESET_PATH = ROOT / "assets" / "tilesets" / "Alloy_curses_12x12.png"
-TILESET_PATH = ROOT / "assets" / "tilesets" / "Bisasam_16x16.png"
+TYR_PATH = ROOT / "assets" / "tilesets" / "Tyr.png"
+BISASM_PATH = ROOT / "assets" / "tilesets" / "Bisasam_16x16.png"
 # TILESET_PATH = ROOT / "assets" / "tilesets" / "Aesomatica_16x16.png"
 # TILESET_PATH = ROOT / "assets" / "tilesets" / "Redjack17.png"
 
@@ -54,17 +54,31 @@ def restart_world(gs: GameState) -> np.ndarray:
 
 
 def main() -> None:
-    if not TILESET_PATH.exists():
-        raise FileNotFoundError(
-            f"Tileset not found: {TILESET_PATH}."
-        )
-
-    tileset = tcod.tileset.load_tilesheet(
-        str(TILESET_PATH),
-        columns=16,
-        rows=16,
-        charmap=tcod.tileset.CHARMAP_CP437,
+    bisasm = tcod.tileset.load_tilesheet(
+        str(BISASM_PATH), columns=16, rows=16, charmap=tcod.tileset.CHARMAP_CP437
     )
+    tyr = tcod.tileset.load_tilesheet(
+        str(TYR_PATH), columns=16, rows=16, charmap=tcod.tileset.CHARMAP_CP437
+    )
+
+    # Hybrid tileset: start with bisasm, overlay alloy for certain chars
+    tileset = bisasm
+
+    for codepoint in range(32, 127):
+        tileset.set_tile(codepoint, tyr.get_tile(codepoint))
+
+    #
+    # if not TILESET_PATH.exists():
+    #     raise FileNotFoundError(
+    #         f"Tileset not found: {TILESET_PATH}."
+    #     )
+
+    # tileset = tcod.tileset.load_tilesheet(
+    #     str(TILESET_PATH),
+    #     columns=16,
+    #     rows=16,
+    #     charmap=tcod.tileset.CHARMAP_CP437,
+    # )
 
     gs, world = boot_world()
 
