@@ -358,22 +358,22 @@ def main() -> None:
                 if event.type == "KEYDOWN":
                     key = event.sym
 
-                    if key in (tcod.event.K_q, tcod.event.K_ESCAPE):
+                    if key in (tcod.event.KeySym.Q, tcod.event.KeySym.ESCAPE):
                         raise SystemExit()
 
-                    if key == tcod.event.K_SPACE:
+                    if key == tcod.event.KeySym.SPACE:
                         gs.paused = not gs.paused
                         add_log(gs, "Paused." if gs.paused else "Resumed.")
 
-                    elif key in (tcod.event.K_PLUS, tcod.event.K_KP_PLUS, tcod.event.K_EQUALS):
+                    elif key in (tcod.event.KeySym.PLUS, tcod.event.KeySym.KP_PLUS, tcod.event.KeySym.EQUALS):
                         gs.tps = min(60.0, gs.tps + 2.0)
                         add_log(gs, f"Speed: {gs.tps:.1f} tps")
 
-                    elif key in (tcod.event.K_MINUS, tcod.event.K_KP_MINUS):
+                    elif key in (tcod.event.KeySym.MINUS, tcod.event.KeySym.KP_MINUS):
                         gs.tps = max(1.0, gs.tps - 2.0)
                         add_log(gs, f"Speed: {gs.tps:.1f} tps")
 
-                    elif key == tcod.event.K_r:
+                    elif key == tcod.event.KeySym.R:
                         gs.seed = int(time.time()) % 100_000
                         gs.tick = 0
                         gs.paused = False
@@ -383,16 +383,16 @@ def main() -> None:
                         world = make_world(gs.seed)
                         spawn_peasants(gs, world)
 
-                    elif key == tcod.event.K_LEFT:
+                    elif key == tcod.event.KeySym.LEFT:
                         x, y = gs.cursor
                         gs.cursor = (clamp(x - 1, 0, MAP_W - 1), y)
-                    elif key == tcod.event.K_RIGHT:
+                    elif key == tcod.event.KeySym.RIGHT:
                         x, y = gs.cursor
                         gs.cursor = (clamp(x + 1, 0, MAP_W - 1), y)
-                    elif key == tcod.event.K_UP:
+                    elif key == tcod.event.KeySym.UP:
                         x, y = gs.cursor
                         gs.cursor = (x, clamp(y - 1, 0, MAP_H - 1))
-                    elif key == tcod.event.K_DOWN:
+                    elif key == tcod.event.KeySym.DOWN:
                         x, y = gs.cursor
                         gs.cursor = (x, clamp(y + 1, 0, MAP_H - 1))
 
