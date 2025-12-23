@@ -43,6 +43,13 @@ def add_log(gs: GameState, msg: str) -> None:
     gs.log.appendleft(msg)
 
 
+def get_forum_pos(gs: GameState) -> Tuple[int, int] | None:
+    for (x, y), b in gs.buildings.items():
+        if b == FORUM:
+            return (x, y)
+    return None
+
+
 def spawn_peasants(gs: GameState, world: np.ndarray, n: int | None = None) -> None:
     """
     Spawn peasants near the center, avoiding water.
@@ -90,9 +97,29 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
     events: list[str] = []
 
     rng = np.random.default_rng(gs.seed + gs.tick)
+    forum = get_forum_pos(gs)
     for a in gs.actors:
-        dx = int(rng.integers(-1, 2))
-        dy = int(rng.integers(-1, 2))
+        if forum is not None:
+            dx = int(rng.integers(-1, 2))
+            dy = int(rng.integers(-1, 2))
+        else:
+            fx, fy = forum
+            step_x = 0 if a.x == fx else (1 if a.x < fx else -1)
+            step_y = 0 if a.y == fy else (1 if a.y < fy else -1)
+
+            # 70%: move towards forum, 30%: random wander
+            if rng.random() < 0.7:
+                dx = step_x
+                dy = step_y
+                # adding a little "imperfect" drift to avoid straight lines forever
+                if rng.random() < 0.25:
+                    dx = int(rng.integers(-1, 2))
+                if rng.random() < 0.25:
+                    dy = int(rng.integers(-1, 2))
+            else:
+                dx = int(rng.integers(-1, 2))
+                dy = int(rng.integers(-1, 2))
+
         nx, ny = a.x + dx, a.y + dy
         if 0 <= nx < MAP_W and 0 <= ny < MAP_H and int(world[ny, nx]) != 2:
             a.x, a.y = nx, ny
