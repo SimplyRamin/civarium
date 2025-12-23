@@ -20,7 +20,8 @@ from .worldgen import make_world, MAP_H, MAP_W
 # -------------------
 ROOT = Path(__file__).resolve().parents[1]
 # FONT_PATH = ROOT / "assets" / "fonts" / "DejaVuSansMono.ttf"
-TILESET_PATH = ROOT / "assets" / "tilesets" / "Alloy_curses_12x12.png"
+# TILESET_PATH = ROOT / "assets" / "tilesets" / "Alloy_curses_12x12.png"
+TILESET_PATH = ROOT / "assets" / "tilesets" / "Bisasam_16x16.png"
 # TILESET_PATH = ROOT / "assets" / "tilesets" / "Aesomatica_16x16.png"
 # TILESET_PATH = ROOT / "assets" / "tilesets" / "Redjack17.png"
 

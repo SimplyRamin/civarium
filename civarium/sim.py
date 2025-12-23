@@ -13,6 +13,7 @@ import numpy as np
 from .worldgen import MAP_W, MAP_H
 
 LOG_H = 8
+FORUM = 1
 
 
 # -------------------
@@ -35,6 +36,7 @@ class GameState:
     log: Deque[str] = field(default_factory=lambda: deque(maxlen=LOG_H))
     cursor: Tuple[int, int] = (MAP_W // 2, MAP_H // 2)
     actors: list["Actor"] = field(default_factory=list)
+    buildings: dict[tuple[int, int], int] = field(default_factory=dict)
 
 
 def add_log(gs: GameState, msg: str) -> None:
@@ -65,7 +67,19 @@ def reset_run(gs: GameState, world: np.ndarray) -> None:
     gs.paused = False
     gs.log.clear()
     gs.actors.clear()
+    gs.buildings.clear()
+
     spawn_peasants(gs, world)
+    add_log(gs, "Forum constructed.")
+
+    cx, cy = MAP_W // 2, MAP_H // 2
+    for r in range(6):
+        for dx in range(-r, r + 1):
+            for dy in range(-r, r + 1):
+                x, y = cx + dx, cy + dy
+                if 0 <= x < MAP_W and 0 <= y < MAP_H and int(world[y, x]) != 2:
+                    gs.buildings[(x, y)] = FORUM
+                    return
 
 
 def update(gs: GameState, world: np.ndarray) -> list[str]:

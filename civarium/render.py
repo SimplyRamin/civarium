@@ -37,6 +37,10 @@ UI = {
     "log_fg": (240, 240, 200)
 }
 
+BUILDING_GLYPHS = {
+    1: ("#", (200, 180, 120)),      # Forum
+}
+
 
 def terrain_style(code: int) -> tuple[str, tuple[int, int, int]]:
     if int(code) == 0:
@@ -79,6 +83,11 @@ def render(console: tcod.console.Console, world: np.ndarray, gs: GameState) -> N
         for x in range(MAP_W):
             ch, fg = terrain_style(world[y, x])
             console.print(x, y, ch, fg=fg)
+
+    # Building rendering
+    for (x, y), b in gs.buildings.items():
+        ch, fg = BUILDING_GLYPHS[b]
+        console.print(x, y, ch, fg=fg)
 
     # Actor rendering
     for a in gs.actors:
