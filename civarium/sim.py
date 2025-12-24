@@ -78,22 +78,58 @@ def place_near_center_nonwater(gs: GameState, world: np.ndarray) -> tuple[int, i
 
 
 def carve_road(gs: GameState, world: np.ndarray, a: tuple[int, int], b: tuple[int, int]) -> None:
-    x, y = a
-    tx, ty = b
+    """
+    Carve a road from a -> b without crossing water, using BFD shortest path.
+    """
+    (sx, sy) = a
+    (tx, ty) = b
+    if (sx, sy) == (tx, ty):
+        return
 
-    def try_set(px: int, py: int) -> None:
-        if 0 <= px < MAP_W and 0 <= py < MAP_H and not is_water(world, px, py):
-            if (px, py) not in gs.buildings:
-                gs.buildings[(px, py)] = ROAD
+    def passable(x: int, y: int) -> bool:
+        # Roads can go on empty lands, do not go through water or overwrite forum/houses
+        if not (0 <= x < MAP_W and 0 <= y < MAP_H):
+            return False
+        if is_water(world, x, y):
+            return False
+        blk = gs.buildings.get((x, y))
+        return blk not in (FORUM, HOUSE)
 
-    # horizontal first, then vertical (simple and readable)
-    step = 1 if tx >= x else -1
-    for px in range(x, tx + step, step):
-        try_set(px, y)
+    prev: dict[tuple[int, int], tuple[int, int] | None] = {(sx, sy): None}
+    q = deque([(sx, sy)])
 
-    step = 1 if ty >= y else -1
-    for py in range(y, ty + step, step):
-        try_set(tx, py)
+    # 4-neighborhood for nicer roads
+    dirs = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+
+    while q:
+        x, y = q.popleft()
+        if (x, y) == (tx, ty):
+            break
+        for dx, dy in dirs:
+            nx, ny = x + dx, y + dy
+            if (nx, ny) in prev:
+                continue
+            if (nx, ny) == (tx, ty) or passable(nx, ny):
+                prev[(nx, ny)] = (x, y)
+                q.append((nx, ny))
+
+    # if no path is found, do nothing (rare; means houses is isolated by water)
+    if (tx, ty) not in prev:
+        return
+
+    # Reconstrcut path (exclude endpoints so we don't overwrite buildings)
+    cur = (tx, ty)
+    path: list[tuple[int, int]] = []
+    while cur is not None:
+        path.append(cur)
+        cur = prev[cur]
+    path.reverse()
+
+    for (x, y) in path:
+        if (x, y) in (a, b):
+            continue
+        if (x, y) not in gs.buildings:   # do not overwrite existing buildings
+            gs.buildings[(x, y)] = ROAD
 
 
 def spawn_peasants(gs: GameState, world: np.ndarray, n: int | None = None) -> None:
@@ -123,7 +159,7 @@ def reset_run(gs: GameState, world: np.ndarray) -> None:
     gs.buildings.clear()
 
     # reset economy
-    gs.food = 120.0
+    gs.food = 80.0
     gs.morale = 0.75
 
     # Place Forum
@@ -137,14 +173,14 @@ def reset_run(gs: GameState, world: np.ndarray) -> None:
     houses: list[tuple[int, int]] = []
     for _ in range(house_count):
         for _attempt in range(200):
-            x = int(rng.integers(-6, 7))
-            y = int(rng.integers(-6, 7))
+            x = fx + int(rng.integers(-6, 7))
+            y = fy + int(rng.integers(-6, 7))
             if 0 <= x < MAP_W and 0 <= y < MAP_H and not is_water(world, x, y):
-                gs.buildings[(x, y)] = HOUSE
-                houses.append((x, y))
-                carve_road(gs, world, (fx, fy), (x, y))     # roads to houses
-                break
-
+                if (x, y) not in gs.buildings:
+                    gs.buildings[(x, y)] = HOUSE
+                    houses.append((x, y))
+                    carve_road(gs, world, (fx, fy), (x, y))     # roads to houses
+                    break
     spawn_peasants(gs, world)
 
     # Assign homes (round-robin)
@@ -172,7 +208,7 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
             else:
                 target = forum     # gather at forum phase.
 
-        if target is not None:
+        if target is None:
             dx = int(rng.integers(-1, 2))
             dy = int(rng.integers(-1, 2))
         else:
@@ -203,15 +239,15 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
     houses = sum(1 for b in gs.buildings.values() if b == HOUSE)
 
     # very simple: houses slightly improve stability; pop consumes food
-    production = 0.10 * houses
-    consumption = 0.25 * pop
+    production = 1.1 * houses + 2.5
+    consumption = 0.18 * pop
 
     gs.food += production - consumption
 
     if gs.food < 0:
         gs.morale = max(0.0, gs.morale - 0.02)
         # occasionally lose someone if starving
-        if pop > 0 and rng.random() < 0.03:
+        if pop > 0 and rng.random() < 0.005:
             gs.actors.pop()
             events.append("Starvation: a peasant was lost.")
             gs.food = max(gs.food, -10.0)

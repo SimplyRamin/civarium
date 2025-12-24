@@ -62,23 +62,16 @@ def main() -> None:
     )
 
     # Hybrid tileset: start with bisasm, overlay alloy for certain chars
-    tileset = bisasm
+    tileset = tcod.tileset.Tileset(16, 16)
 
+    for codepoint in tcod.tileset.CHARMAP_CP437:
+        tileset.set_tile(codepoint, bisasm.get_tile(codepoint))
+
+    KEEP_FROM_WORLD = {ord("@"), ord("#"), ord("="), ord("~"), ord("^")}
     for codepoint in range(32, 127):
+        if codepoint in KEEP_FROM_WORLD:
+            continue
         tileset.set_tile(codepoint, tyr.get_tile(codepoint))
-
-    #
-    # if not TILESET_PATH.exists():
-    #     raise FileNotFoundError(
-    #         f"Tileset not found: {TILESET_PATH}."
-    #     )
-
-    # tileset = tcod.tileset.load_tilesheet(
-    #     str(TILESET_PATH),
-    #     columns=16,
-    #     rows=16,
-    #     charmap=tcod.tileset.CHARMAP_CP437,
-    # )
 
     gs, world = boot_world()
 
