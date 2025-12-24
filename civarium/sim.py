@@ -157,6 +157,19 @@ def carve_road(gs: GameState, world: np.ndarray, a: tuple[int, int], b: tuple[in
             gs.buildings[(x, y)] = ROAD
 
 
+def nearest_road(gs: GameState, target: tuple[int, int]) -> tuple[int, int] | None:
+    tx, ty = target
+    best = None
+    best_d = 10**9
+    for (x, y), b in gs.buildings.items():
+        if b == ROAD:
+            d = abs(x - tx) + abs(y - ty)
+            if d < best_d:
+                best_d = d
+                best = (x, y)
+    return best
+
+
 def spawn_peasants(gs: GameState, world: np.ndarray, n: int | None = None) -> None:
     """
     Spawn peasants near the center, avoiding water.
@@ -189,7 +202,8 @@ def can_place_farm(gs: GameState, world: np.ndarray, x: int, y: int) -> bool:
 def try_build_farm(gs: GameState, world: np.ndarray, around: tuple[int, int], rng: np.random.Generator) -> bool:
     def place(gs: GameState, world: np.ndarray, x: int, y: int):
         gs.buildings[(x, y)] = FARM
-        carve_road(gs, world, around, (x, y))
+        start = nearest_road(gs, (x, y)) or around
+        carve_road(gs, world, start, (x, y))
         assign_farmers(gs, rng)
 
     start_r = 10 + len([b for b in gs.buildings.values() if b == FARM]) // 2
@@ -216,7 +230,8 @@ def try_build_house(gs: GameState, world: np.ndarray, center: tuple[int, int]) -
 
     def place(x: int, y: int) -> None:
         gs.buildings[(x, y)] = HOUSE
-        carve_road(gs, world, center, (x, y))
+        start = nearest_road(gs, (x, y)) or center
+        carve_road(gs, world, start, (x, y))
 
     # start near the forum, expand outward
     max_r = max(MAP_W, MAP_H)
@@ -270,6 +285,9 @@ def _try_place_with_expanding_radius(
         for _ in range(attempts_per_r):
             x = cx + int(rng.integers(-r, r + 1))   # type: ignore
             y = cy + int(rng.integers(-r, r + 1))   # type: ignore
+            # using plaza radius to avoid placing too close to center
+            if abs(x - cx) <= PLAZA_R and abs(y - cy) <= PLAZA_R:
+                continue
             if 0 <= x < MAP_W and 0 <= y < MAP_H and can_place(gs, world, x, y):
                 place(gs, world, x, y)
                 return True
