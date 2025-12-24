@@ -8,7 +8,7 @@ from __future__ import annotations
 import numpy as np
 import tcod
 
-from .sim import GameState, FORUM, HOUSE, ROAD
+from .sim import GameState
 from .worldgen import MAP_W, MAP_H
 
 PANEL_W = 30
@@ -41,6 +41,7 @@ BUILDING_GLYPHS = {
     1: ("#", (200, 180, 120)),      # Forum
     2: ("⌂", (180, 160, 120)),      # House
     3: ("=", (140, 140, 140)),      # Road
+    4: ("\"", (120, 200, 120)),     # Farm
 }
 
 
@@ -137,7 +138,7 @@ def render(console: tcod.console.Console, world: np.ndarray, gs: GameState) -> N
     if 0 <= cx < MAP_W and 0 <= cy < MAP_H:
         b = gs.buildings.get((cx, cy))
         if b is not None:
-            bname = {1: "Forum", 2: "House", 3: "Road"}.get(b, "Building")
+            bname = {1: "Forum", 2: "House", 3: "Road", 4: "Farm"}.get(b, "Building")
             console.print(px, 15, f"({cx},{cy}) {bname}", fg=UI["text_fg"])
         else:
             code = int(world[cy, cx])

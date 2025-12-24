@@ -16,6 +16,7 @@ LOG_H = 8
 FORUM = 1
 HOUSE = 2
 ROAD = 3
+FARM = 4
 
 
 # -------------------
@@ -48,7 +49,7 @@ def add_log(gs: GameState, msg: str) -> None:
     gs.log.appendleft(msg)
 
 
-def get_forum_pos(gs: GameState) -> Tuple[int, int] | None:
+def get_forum_pos(gs: GameState) -> tuple[int, int] | None:
     for (x, y), b in gs.buildings.items():
         if b == FORUM:
             return (x, y)
@@ -151,6 +152,30 @@ def spawn_peasants(gs: GameState, world: np.ndarray, n: int | None = None) -> No
                 break
 
 
+def can_place_farm(gs: GameState, world: np.ndarray, x: int, y: int) -> bool:
+    if not (0 <= x < MAP_W and 0 <= y < MAP_H):
+        return False
+    if int(world[y, x]) != 0:  # only plains
+        return False
+    if (x, y) in gs.buildings:
+        return False
+    return True
+
+
+def try_build_farm(gs: GameState, world: np.ndarray, around: tuple[int, int], rng: np.random.Generator) -> bool:
+    ax, ay = around
+    for _ in range(200):
+        x = ax + int(rng.integers(-10, 11))
+        y = ay + int(rng.integers(-10, 11))
+        if can_place_farm(gs, world, x, y):
+            gs.buildings[(x, y)] = FARM
+            forum = get_forum_pos(gs)
+            if forum is not None:
+                carve_road(gs, world, forum, (x, y))
+            return True
+    return False
+
+
 def reset_run(gs: GameState, world: np.ndarray) -> None:
     gs.tick = 0
     gs.paused = False
@@ -237,12 +262,14 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
     # -----------------------------
     pop = len(gs.actors)
     houses = sum(1 for b in gs.buildings.values() if b == HOUSE)
+    farms = sum(1 for b in gs.buildings.values() if b == FARM)
 
     # very simple: houses slightly improve stability; pop consumes food
-    production = 1.1 * houses + 2.5
+    production = 1.1 * houses + 2.5 + 2.0 * farms
     consumption = 0.18 * pop
-
     gs.food += production - consumption
+
+    capacity = houses * 4
 
     if gs.food < 0:
         gs.morale = max(0.0, gs.morale - 0.02)
@@ -255,7 +282,6 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
         gs.morale = min(1.0, gs.morale + 0.005)
 
     # Occasional
-    capacity = houses * 4
     if pop < capacity and gs.food > 30 and gs.morale > 0.70 and rng.random() < 0.02:
         fx, fy = forum if forum is not None else (MAP_W // 2, MAP_H // 2)
         gs.actors.append(Actor(x=fx, y=fy, glyph="@", fg=(230, 230, 230), home=None))
@@ -263,6 +289,16 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
 
     if gs.tick % int(max(1, gs.tps)) == 0:
         events.append(f"Tick {gs.tick}: peasants wander...")
+
+    if gs.tick % 25 == 0:
+        forum = get_forum_pos(gs)
+        # If food is trending down or farms are too few, build a farm
+        if gs.food < 60 or farms < max(1, houses):
+            if try_build_farm(gs, world, forum, rng):   # type: ignore
+                events.append("A new farm was built.")
+        # If near capacity, build a house
+        elif pop >= capacity - 1:
+            events.append("Housing is tight.")
 
     return events
 
