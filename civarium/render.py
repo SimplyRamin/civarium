@@ -40,8 +40,23 @@ UI = {
 BUILDING_GLYPHS = {
     1: ("#", (200, 180, 120)),      # Forum
     2: ("⌂", (180, 160, 120)),      # House
-    3: ("=", (140, 140, 140)),      # Road
-    4: ("\"", (120, 200, 120)),     # Farm
+    3: ("─", (140, 140, 140)),      # Road
+    4: ("░", (120, 200, 120)),      # Farm
+}
+
+ROAD_GLYPHS = {
+    "h": "─",
+    "v": "│",
+    "ur": "└",  # coming from up, turning right
+    "ul": "┘",  # coming from up, turning left
+    "dr": "┌",  # coming from down, turning right
+    "dl": "┐",  # coming from down, turning left
+    "x": "┼",   # 4-way
+    "t_up": "┴",
+    "t_down": "┬",
+    "t_left": "┤",
+    "t_right": "├",
+
 }
 
 
@@ -78,6 +93,47 @@ def draw_frame(console: tcod.console.Console, x: int, y: int, w: int, h: int, ti
             console.print(start, y, t, fg=UI["title_fg"], bg=None)
 
 
+def road_glyph(gs, x: int, y: int) -> str:
+    def is_road(px: int, py: int) -> bool:
+        return gs.buildings.get((px, py)) == 3  # ROAD
+
+    up = is_road(x, y - 1)
+    dn = is_road(x, y + 1)
+    lf = is_road(x - 1, y)
+    rt = is_road(x + 1, y)
+
+    # connections count
+    c = up + dn + lf + rt
+
+    if c <= 1:
+        # dead-end: prefer horizontal if connected left / right, else vertical
+        return "─" if (lf or rt) else "│"
+    if up and dn and lf and rt:
+        return "┼"
+    if up and dn and lf:
+        return "┤"
+    if up and dn and rt:
+        return "├"
+    if lf and rt and up:
+        return "┴"
+    if lf and rt and dn:
+        return "┬"
+    if lf and rt:
+        return "─"
+    if up and dn:
+        return "│"
+    if up and rt:
+        return "└"
+    if up and lf:
+        return "┘"
+    if dn and rt:
+        return "┌"
+    if dn and lf:
+        return "┐"
+
+    return "─"
+
+
 def render(console: tcod.console.Console, world: np.ndarray, gs: GameState) -> None:
     console.clear()
 
@@ -89,8 +145,12 @@ def render(console: tcod.console.Console, world: np.ndarray, gs: GameState) -> N
 
     # Building rendering
     for (x, y), b in gs.buildings.items():
-        ch, fg = BUILDING_GLYPHS[b]
-        console.print(x, y, ch, fg=fg)
+        if b == 3:
+            ch = road_glyph(gs, x, y)
+            console.print(x, y, ch, fg=BUILDING_GLYPHS[b][1])
+        else:
+            ch, fg = BUILDING_GLYPHS[b]
+            console.print(x, y, ch, fg=fg)
 
     # Actor rendering
     for a in gs.actors:

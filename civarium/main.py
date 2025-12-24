@@ -67,7 +67,16 @@ def main() -> None:
     for codepoint in tcod.tileset.CHARMAP_CP437:
         tileset.set_tile(codepoint, bisasm.get_tile(codepoint))
 
-    KEEP_FROM_WORLD = {ord("@"), ord("#"), ord("="), ord("~"), ord("^")}
+    KEEP_FROM_WORLD = {
+        ord("."),  # plains
+        ord("~"),  # water
+        ord("^"),  # hill
+        ord("♣"),  # forest (if you're using it; see note below)
+        ord("@"),  # peasants
+        ord("#"),  # forum
+        ord("="),  # roads
+        ord('░'),  # farms if you used "
+        }
     for codepoint in range(32, 127):
         if codepoint in KEEP_FROM_WORLD:
             continue
