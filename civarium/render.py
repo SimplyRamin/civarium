@@ -127,12 +127,12 @@ def render(console: tcod.console.Console, world: np.ndarray, gs: GameState) -> N
     console.print(px, 6, f"Food: {gs.food:.1f}", fg=UI["text_fg"])
     console.print(px, 7, f"Morale: {gs.morale:.2f}", fg=UI["text_fg"])
 
-    console.print(px, 8, "Controls:", fg=UI["title_fg"])
-    console.print(px, 9, "Space: pause", fg=UI["muted_fg"])
-    console.print(px, 10, "+/- : speed", fg=UI["muted_fg"])
-    console.print(px, 11, "Arrows: cursor", fg=UI["muted_fg"])
-    console.print(px, 12, "R: restart", fg=UI["muted_fg"])
-    console.print(px, 13, "Q: quit", fg=UI["muted_fg"])
+    console.print(px, 9, "Controls:", fg=UI["title_fg"])
+    console.print(px, 10, "Space: pause", fg=UI["muted_fg"])
+    console.print(px, 11, "+/- : speed", fg=UI["muted_fg"])
+    console.print(px, 12, "Arrows: cursor", fg=UI["muted_fg"])
+    console.print(px, 13, "R: restart", fg=UI["muted_fg"])
+    console.print(px, 14, "Q: quit", fg=UI["muted_fg"])
 
     console.print(px, 14, "Inspect:", fg=UI["title_fg"])
     if 0 <= cx < MAP_W and 0 <= cy < MAP_H:

@@ -157,7 +157,8 @@ def can_place_farm(gs: GameState, world: np.ndarray, x: int, y: int) -> bool:
         return False
     if int(world[y, x]) != 0:  # only plains
         return False
-    if (x, y) in gs.buildings:
+    b = gs.buildings.get((x, y))
+    if b is not None and b != ROAD:
         return False
     return True
 
@@ -169,6 +170,31 @@ def try_build_farm(gs: GameState, world: np.ndarray, around: tuple[int, int], rn
         y = ay + int(rng.integers(-10, 11))
         if can_place_farm(gs, world, x, y):
             gs.buildings[(x, y)] = FARM
+            forum = get_forum_pos(gs)
+            if forum is not None:
+                carve_road(gs, world, forum, (x, y))
+            return True
+    return False
+
+
+def can_place_house(gs: GameState, world: np.ndarray, x: int, y: int) -> bool:
+    if not (0 <= x < MAP_W and 0 <= y < MAP_H):
+        return False
+    if is_water(world, x, y):
+        return False
+    b = gs.buildings.get((x, y))
+    if b is not None and b != ROAD:
+        return False
+    return True
+
+
+def try_build_houses(gs: GameState, world: np.ndarray, around: tuple[int, int], rng: np.random.Generator) -> bool:
+    ax, ay = around
+    for _ in range(400):
+        x = ax + int(rng.integers(-10, 11))
+        y = ay + int(rng.integers(-10, 11))
+        if can_place_house(gs, world, x, y):
+            gs.buildings[(x, y)] = HOUSE
             forum = get_forum_pos(gs)
             if forum is not None:
                 carve_road(gs, world, forum, (x, y))
@@ -287,19 +313,23 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
         gs.actors.append(Actor(x=fx, y=fy, glyph="@", fg=(230, 230, 230), home=None))
         events.append("A newcomer arrived at the Forum.")
 
-    if gs.tick % int(max(1, gs.tps)) == 0:
-        events.append(f"Tick {gs.tick}: peasants wander...")
+    # if gs.tick % int(max(1, gs.tps)) == 0:
+    #     events.append(f"Tick {gs.tick}: peasants wander...")
 
     if gs.tick % 25 == 0:
         forum = get_forum_pos(gs)
-        # If food is trending down or farms are too few, build a farm
-        if gs.food < 60 or farms < max(1, houses):
-            if try_build_farm(gs, world, forum, rng):   # type: ignore
-                events.append("A new farm was built.")
-        # If near capacity, build a house
-        elif pop >= capacity - 1:
-            events.append("Housing is tight.")
+        if forum is not None:
+            built = False
 
+        # Priority 1: if housing is tight, built a house.
+            if pop >= capacity - 1:
+                built = try_build_houses(gs, world, forum, rng)   # type: ignore
+                events.append("Built a house." if built else "House build failed (no space).")
+
+        # Priority 2: otherwise, keep farms >= houses or build when food is low
+            elif gs.food < 60 or farms < max(1, houses):
+                built = try_build_farm(gs, world, forum, rng)   # type: ignore
+                events.append("Built a farm." if built else "Farm build failed (no plains).")
     return events
 
 
