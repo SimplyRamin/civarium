@@ -154,7 +154,10 @@ def render(console: tcod.console.Console, world: np.ndarray, gs: GameState) -> N
 
     # Actor rendering
     for a in gs.actors:
-        console.print(a.x, a.y, a.glyph, fg=a.fg)
+        fg = a.fg
+        if getattr(a, "role", "laborer") == "farmer":
+            fg = (230, 210, 120)    # warm / yellowish
+        console.print(a.x, a.y, a.glyph, fg=fg)
 
     # Cursor highlight
     cx, cy = gs.cursor

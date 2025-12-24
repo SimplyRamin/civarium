@@ -29,6 +29,8 @@ class Actor:
     glyph: str
     fg: tuple[int, int, int]
     home: tuple[int, int] | None = None
+    role: str = "laborer"                   # laborer or farmer
+    work: tuple[int, int] | None = None     # farm tile if farmer
 
 
 @dataclass
@@ -65,6 +67,27 @@ def is_blocked(gs: GameState, world: np.ndarray, x: int, y: int) -> bool:
         return True
     b = gs.buildings.get((x, y))
     return b == FORUM or b == HOUSE     # Roads are walkable
+
+
+def assign_farmers(gs: GameState, rng: np.random.Generator) -> None:
+    farms = [pos for pos, b in gs.buildings.items() if b == FARM]
+    if not farms:
+        return
+
+    # target: ~1 farmer per farm (or 2 if pop is high)
+    target = min(len(gs.actors), max(1, len(farms)))
+
+    current = [a for a in gs.actors if a.role == "farmer" and a.work is not None]
+    need = max(0, target - len(current))
+    if need == 0:
+        return
+
+    candidates = [a for a in gs.actors if a.role != "farmer"]
+    rng.shuffle(candidates)
+
+    for a in candidates[:need]:
+        a.role = "farmer"
+        a.work = farms[int(rng.integers(0, len(farms)))]
 
 
 def place_near_center_nonwater(gs: GameState, world: np.ndarray) -> tuple[int, int]:
@@ -164,17 +187,18 @@ def can_place_farm(gs: GameState, world: np.ndarray, x: int, y: int) -> bool:
 
 
 def try_build_farm(gs: GameState, world: np.ndarray, around: tuple[int, int], rng: np.random.Generator) -> bool:
-    ax, ay = around
-    for _ in range(200):
-        x = ax + int(rng.integers(-10, 11))
-        y = ay + int(rng.integers(-10, 11))
-        if can_place_farm(gs, world, x, y):
-            gs.buildings[(x, y)] = FARM
-            forum = get_forum_pos(gs)
-            if forum is not None:
-                carve_road(gs, world, forum, (x, y))
-            return True
-    return False
+    def place(gs: GameState, world: np.ndarray, x: int, y: int):
+        gs.buildings[(x, y)] = FARM
+        carve_road(gs, world, around, (x, y))
+        assign_farmers(gs, rng)
+
+    start_r = 10 + len([b for b in gs.buildings.values() if b == FARM]) // 2
+    return _try_place_with_expanding_radius(
+        gs, world, around, rng,         # type: ignore
+        can_place=can_place_farm,
+        place=place,
+        start_r=start_r,
+    )
 
 
 def can_place_house(gs: GameState, world: np.ndarray, x: int, y: int) -> bool:
@@ -188,17 +212,69 @@ def can_place_house(gs: GameState, world: np.ndarray, x: int, y: int) -> bool:
     return True
 
 
-def try_build_houses(gs: GameState, world: np.ndarray, around: tuple[int, int], rng: np.random.Generator) -> bool:
-    ax, ay = around
-    for _ in range(400):
-        x = ax + int(rng.integers(-10, 11))
-        y = ay + int(rng.integers(-10, 11))
-        if can_place_house(gs, world, x, y):
-            gs.buildings[(x, y)] = HOUSE
-            forum = get_forum_pos(gs)
-            if forum is not None:
-                carve_road(gs, world, forum, (x, y))
-            return True
+def try_build_house(gs: GameState, world: np.ndarray, center: tuple[int, int]) -> bool:
+    cx, cy = center
+
+    def place(x: int, y: int) -> None:
+        gs.buildings[(x, y)] = HOUSE
+        carve_road(gs, world, center, (x, y))
+
+    # start near the forum, expand outward
+    max_r = max(MAP_W, MAP_H)
+
+    for r in range(2, max_r):
+        # walk the square ring at radius r (perimeter only)
+        x0, x1 = cx - r, cx + r
+        y0, y1 = cy - r, cy + r
+
+        # top and bottom edges
+        for x in range(x0, x1 + 1):
+            y = y0
+            if can_place_house(gs, world, x, y):
+                place(x, y)
+                return True
+            y = y1
+            if can_place_house(gs, world, x, y):
+                place(x, y)
+                return True
+
+        # left and right edges (excluding corners already checked)
+        for y in range(y0 + 1, y1):
+            x = x0
+            if can_place_house(gs, world, x, y):
+                place(x, y)
+                return True
+            x = x1
+            if can_place_house(gs, world, x, y):
+                place(x, y)
+                return True
+
+    return False
+
+
+def _try_place_with_expanding_radius(
+        gs: GameState,
+        world: np.ndarray,
+        center: tuple[int, int],
+        rng: np.random.Generator,
+        can_place,
+        place,
+        start_r: int = 8,
+        max_r: int | None = None,
+        attempts_per_r: int = 250) -> bool:
+    cx, cy = center
+    if max_r is None:
+        max_r = max(MAP_W, MAP_H)
+
+    r = start_r
+    while r <= max_r:
+        for _ in range(attempts_per_r):
+            x = cx + int(rng.integers(-r, r + 1))   # type: ignore
+            y = cy + int(rng.integers(-r, r + 1))   # type: ignore
+            if 0 <= x < MAP_W and 0 <= y < MAP_H and can_place(gs, world, x, y):
+                place(gs, world, x, y)
+                return True
+        r = int(r * 1.35) + 1
     return False
 
 
@@ -240,6 +316,8 @@ def reset_run(gs: GameState, world: np.ndarray) -> None:
             a.home = houses[i % len(houses)]
     add_log(gs, f"Houses: {len(houses)} | Peasants: {len(gs.actors)}")
 
+    assign_farmers(gs, rng)
+
 
 def update(gs: GameState, world: np.ndarray) -> list[str]:
     if gs.paused:
@@ -250,14 +328,27 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
 
     rng = np.random.default_rng(gs.seed + gs.tick)
     forum = get_forum_pos(gs)
+
+    # simple day cycle of 20 ticks
+    phase = gs.tick % 20
+    work_bonus = 0.0
     for a in gs.actors:
-        # Decide target: mostly forum by day, home sometimes (simple rhythm)
         target = None
-        if forum is not None:
-            if a.home is not None and (gs.tick % 20) >= 14:
-                target = a.home     # go home phase
+        if a.role == "farmer" and a.work is not None:
+            # work hours 6..13
+            if 6 <= phase <= 13:
+                target = a.work
+            elif a.home is not None:
+                target = a.home
             else:
-                target = forum     # gather at forum phase.
+                target = forum
+        else:
+            # non-farmers: forum then home late phase
+            if forum is not None:
+                if a.home is not None and phase >= 15:
+                    target = a.home
+                else:
+                    target = forum
 
         if target is None:
             dx = int(rng.integers(-1, 2))
@@ -267,7 +358,7 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
             step_x = 0 if a.x == fx else (1 if a.x < fx else -1)
             step_y = 0 if a.y == fy else (1 if a.y < fy else -1)
 
-            # 75%: move towards forum, 25%: random wander
+            # 75%: move towards target, 25%: random wander
             if rng.random() < 0.75:
                 dx = step_x
                 dy = step_y
@@ -280,9 +371,15 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
                 dx = int(rng.integers(-1, 2))
                 dy = int(rng.integers(-1, 2))
 
+        if a.role == "farmer" and a.work is not None and (a.x, a.y) == a.work:
+            work_bonus += 0.08
+        gs.food += work_bonus
+
         nx, ny = a.x + dx, a.y + dy
         if 0 <= nx < MAP_W and 0 <= ny < MAP_H and int(world[ny, nx]) != 2:
             a.x, a.y = nx, ny
+
+    # work bonus: farmers on their farm add food
 
     # Economy
     # -----------------------------
@@ -319,11 +416,9 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
     if gs.tick % 25 == 0:
         forum = get_forum_pos(gs)
         if forum is not None:
-            built = False
-
-        # Priority 1: if housing is tight, built a house.
+            # Priority 1: if housing is tight, built a house.
             if pop >= capacity - 1:
-                built = try_build_houses(gs, world, forum, rng)   # type: ignore
+                built = try_build_house(gs, world, forum)   # type: ignore
                 events.append("Built a house." if built else "House build failed (no space).")
 
         # Priority 2: otherwise, keep farms >= houses or build when food is low
