@@ -13,6 +13,7 @@ import numpy as np
 from .worldgen import MAP_W, MAP_H
 
 LOG_H = 8
+PLAZA_R = 3
 FORUM = 1
 HOUSE = 2
 ROAD = 3
@@ -180,8 +181,7 @@ def can_place_farm(gs: GameState, world: np.ndarray, x: int, y: int) -> bool:
         return False
     if int(world[y, x]) != 0:  # only plains
         return False
-    b = gs.buildings.get((x, y))
-    if b is not None and b != ROAD:
+    if (x, y) in gs.buildings:
         return False
     return True
 
@@ -206,8 +206,7 @@ def can_place_house(gs: GameState, world: np.ndarray, x: int, y: int) -> bool:
         return False
     if is_water(world, x, y):
         return False
-    b = gs.buildings.get((x, y))
-    if b is not None and b != ROAD:
+    if (x, y) in gs.buildings:
         return False
     return True
 
