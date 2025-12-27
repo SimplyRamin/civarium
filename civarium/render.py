@@ -183,7 +183,7 @@ def render(console: tcod.console.Console, world: np.ndarray, gs: GameState) -> N
     # Calculations - Right panel
     garnaries = sum(1 for b in gs.buildings.values() if b == 6)
     food_cap = 120.0 + 80.0 * garnaries
-    
+
     # Right panel
     panel_x = MAP_W
     draw_frame(console, panel_x, 0, PANEL_W, MAP_H, "Civarium")

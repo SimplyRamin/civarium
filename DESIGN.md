@@ -32,5 +32,5 @@
 
 
 ## Self notes
-- make production of the foods only when farmers are at their farms and not wandering.
+- farms and houses are built across the rivers have no access and farmers cannot reach them.
 - add information to the side, for instance how many peasants are there, how many are farmers and how many are peasants and classes.

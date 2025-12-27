@@ -46,6 +46,7 @@ class Actor:
     home: tuple[int, int] | None = None
     role: str = "laborer"                   # laborer or farmer
     work: tuple[int, int] | None = None     # farm tile if farmer
+    work_timer: int = 0
 
 
 @dataclass
@@ -443,63 +444,74 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
 
     # simple day cycle of 20 ticks
     phase = gs.tick % 20
-    work_bonus = 0.0
+    work_hours = 6 <= phase <= 13
     for a in gs.actors:
+        stick = False
         target = None
         if a.role == "farmer" and a.work is not None:
             # work hours 6..13
-            if 6 <= phase <= 13:
+            if a.work_timer > 0:
                 target = a.work
-            elif a.home is not None:
+                stick = True
+                a.work_timer -= 1
+            else:
+                if work_hours:
+                    target = a.work
+                    # when they arrive, start a work session
+                    if (a.x, a.y) == a.work:
+                        a.work_timer = 6
+                        stick = True
+                else:
+                    target = a.home or forum
+        else:
+            if forum is None:
                 target = a.home
             else:
-                target = forum
-        else:
-            # non-farmers: forum then home late phase
-            if forum is not None:
-                if a.home is not None and phase >= 15:
-                    target = a.home
-                else:
-                    target = forum
+                target = a.home if (a.home is not None and phase >= 14) else forum
 
-        if target is None:
-            dx = int(rng.integers(-1, 2))
-            dy = int(rng.integers(-1, 2))
+        if stick:
+            dx, dy = 0, 0
         else:
-            fx, fy = target  # type: ignore
-            step_x = 0 if a.x == fx else (1 if a.x < fx else -1)
-            step_y = 0 if a.y == fy else (1 if a.y < fy else -1)
-
-            # 75%: move towards target, 25%: random wander
-            if rng.random() < 0.75:
-                dx = step_x
-                dy = step_y
-                # adding a little "imperfect" drift to avoid straight lines forever
-                if rng.random() < 0.25:
-                    dx = int(rng.integers(-1, 2))
-                if rng.random() < 0.25:
-                    dy = int(rng.integers(-1, 2))
-            else:
+            if target is None:
                 dx = int(rng.integers(-1, 2))
                 dy = int(rng.integers(-1, 2))
+            else:
+                tx, ty = target
+                dx = 0 if a.x == tx else (1 if a.x < tx else -1)
+                dy = 0 if a.y == ty else (1 if a.y < ty else -1)
 
-        if a.role == "farmer" and a.work is not None and (a.x, a.y) == a.work:
-            work_bonus += 0.08
+                # only random movement for non-farmers or outside thw work hours
+                if not (a.role == "farmer" and work_hours):
+                    if rng.random() < 0.35:
+                        dx = int(rng.integers(-1, 2))
+                    if rng.random() < 0.35:
+                        dy = int(rng.integers(-1, 2))
 
         nx, ny = a.x + dx, a.y + dy
-        if 0 <= nx < MAP_W and 0 <= ny < MAP_H and int(world[ny, nx]) != 2:
+        if 0 <= nx < MAP_W and 0 <= ny < MAP_H and not is_blocked(gs, world, nx, ny):
             a.x, a.y = nx, ny
-
-    gs.food += work_bonus
 
     # Economy
     # -----------------------------
+
+    # Base foraging
+    base_food = 0.8
+
+    # Count staffed farms: farmers currently standing on their assigned work tile.
+    staffed = 0
+    for a in gs.actors:
+        if getattr(a, "role", "laborer") == "farmer" and a.work is not None and (a.x, a.y) == a.work:
+            staffed += 1
+
+    food_from_staffed = 0.9 * staffed
+
     pop = len(gs.actors)
     houses = sum(1 for b in gs.buildings.values() if b == HOUSE)
     farms = sum(1 for b in gs.buildings.values() if b == FARM)
     lumbers = sum(1 for b in gs.buildings.values() if b == LUMBER)
     garnaries = sum(1 for b in gs.buildings.values() if b == GARNARY)
     food_cap = BASE_FOOD_CAP + garnaries * FOOD_CAP_PER_GARNARY
+    desired_farms = max(1, pop // 4)
 
     # Spoilage
     if gs.food > food_cap:
@@ -507,7 +519,7 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
         gs.food -= SPOILAGE_RATE * excess
 
     # houses slightly improve stability; pop consumes food
-    production = 1.1 * houses + 2.5 + 2.0 * farms
+    production = base_food + food_from_staffed
     consumption = 0.18 * pop
     gs.food += production - consumption
     gs.wood += 0.35 * lumbers
@@ -549,7 +561,7 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
                         events.append("Need wood for housing.")
 
             # Priority 2: food pressure -> try farm, else get wood.
-            elif gs.food < 60 or farms < max(1, houses):
+            elif gs.food < 60 and farms < desired_farms:
                 if gs.wood >= FARM_WOOD_COST:
                     built = try_build_farm(gs, world, forum, rng)
                     if built:
@@ -563,12 +575,20 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
                         events.append("Need wood for farms.")
 
             # Priority 3: if food is near/at cap, build storage (stop waste).
-            elif gs.food >= 0.92 * food_cap and gs.wood >= GARNARY_WOOD_COST:
+            elif (gs.food >= 0.92 * food_cap
+                  and gs.wood >= GARNARY_WOOD_COST
+                  and farms >= 2
+                  and staffed >= 1
+                  and garnaries < max(1, farms // 2)):
                 built = try_build_garnary(gs, world, forum, rng)
                 if built:
                     events.append("Built a garnary.")
                 else:
                     events.append("Garnary build failed.")
+
+        if gs.tick % 50 == 0:
+            assign_farmers(gs, rng)
+
     return events
 
 
