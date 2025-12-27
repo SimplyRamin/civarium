@@ -19,6 +19,7 @@ HOUSE = 2
 ROAD = 3
 FARM = 4
 LUMBER = 5
+GARNARY = 6
 
 # -------------------
 # Costs
@@ -26,6 +27,11 @@ LUMBER = 5
 HOUSE_WOOD_COST = 8.0
 FARM_WOOD_COST = 4.0
 LUMBER_WOOD_COST = 2.0
+GARNARY_WOOD_COST = 10.0
+
+BASE_FOOD_CAP = 120.0
+FOOD_CAP_PER_GARNARY = 80.0
+SPOILAGE_RATE = 0.04  # % of food that spoils per tick
 
 
 # -------------------
@@ -324,6 +330,36 @@ def try_build_lumber(gs: GameState, world: np.ndarray, around: tuple[int, int], 
     )
 
 
+def can_place_garnary(gs: GameState, world: np.ndarray, x: int, y: int) -> bool:
+    if not (0 <= x < MAP_W and 0 <= y < MAP_H):
+        return False
+    if is_water(world, x, y):
+        return False
+    if (x, y) in gs.buildings:
+        return False
+    return True
+
+
+def try_build_garnary(gs: GameState, world: np.ndarray, around: tuple[int, int], rng: np.random.Generator) -> bool:
+    if gs.wood < GARNARY_WOOD_COST:
+        return False
+
+    def place(gs: GameState, world: np.ndarray, x: int, y: int) -> None:
+        gs.buildings[(x, y)] = GARNARY
+        gs.wood -= GARNARY_WOOD_COST
+        start = nearest_road(gs, (x, y)) or around
+        carve_road(gs, world, start, (x, y))
+
+    # Prefer near the forum but, but expand outward
+    return _try_place_with_expanding_radius(
+        gs, world, around, rng,
+        can_place=can_place_garnary,
+        place=place,
+        start_r=6,
+        attempts_per_r=220,
+    )
+
+
 def _try_place_with_expanding_radius(
         gs: GameState,
         world: np.ndarray,
@@ -453,7 +489,7 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
         nx, ny = a.x + dx, a.y + dy
         if 0 <= nx < MAP_W and 0 <= ny < MAP_H and int(world[ny, nx]) != 2:
             a.x, a.y = nx, ny
-    
+
     gs.food += work_bonus
 
     # Economy
@@ -462,6 +498,13 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
     houses = sum(1 for b in gs.buildings.values() if b == HOUSE)
     farms = sum(1 for b in gs.buildings.values() if b == FARM)
     lumbers = sum(1 for b in gs.buildings.values() if b == LUMBER)
+    garnaries = sum(1 for b in gs.buildings.values() if b == GARNARY)
+    food_cap = BASE_FOOD_CAP + garnaries * FOOD_CAP_PER_GARNARY
+
+    # Spoilage
+    if gs.food > food_cap:
+        excess = gs.food - food_cap
+        gs.food -= SPOILAGE_RATE * excess
 
     # houses slightly improve stability; pop consumes food
     production = 1.1 * houses + 2.5 + 2.0 * farms
@@ -505,21 +548,27 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
                     else:
                         events.append("Need wood for housing.")
 
-        # Priority 2: food pressure -> try farm, else get wood.
-            else:
-                need_farm = (gs.food < 60) or (farms < max(1, houses))
-                if need_farm:
-                    if gs.wood >= FARM_WOOD_COST:
-                        built = try_build_farm(gs, world, forum, rng)
-                        if built:
-                            events.append("Built a farm.")
-                        else:
-                            events.append("Farm build failed.")
+            # Priority 2: food pressure -> try farm, else get wood.
+            elif gs.food < 60 or farms < max(1, houses):
+                if gs.wood >= FARM_WOOD_COST:
+                    built = try_build_farm(gs, world, forum, rng)
+                    if built:
+                        events.append("Built a farm.")
                     else:
-                        if gs.wood >= LUMBER_WOOD_COST and try_build_lumber(gs, world, forum, rng):
-                            events.append("Built a lumber camp.")
-                        else:
-                            events.append("Need wood for farms.")
+                        events.append("Farm build failed.")
+                else:
+                    if gs.wood >= LUMBER_WOOD_COST and try_build_lumber(gs, world, forum, rng):
+                        events.append("Built a lumber camp.")
+                    else:
+                        events.append("Need wood for farms.")
+
+            # Priority 3: if food is near/at cap, build storage (stop waste).
+            elif gs.food >= 0.92 * food_cap and gs.wood >= GARNARY_WOOD_COST:
+                built = try_build_garnary(gs, world, forum, rng)
+                if built:
+                    events.append("Built a garnary.")
+                else:
+                    events.append("Garnary build failed.")
     return events
 
 

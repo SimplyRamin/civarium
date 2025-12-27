@@ -43,6 +43,7 @@ BUILDING_GLYPHS = {
     3: ("─", (140, 140, 140)),      # Road
     4: ("░", (120, 200, 120)),      # Farm
     5: ("£", (160, 120, 80)),       # Lumber Camp
+    6: ("Θ", (200, 170, 90)),       # Garnary
 }
 
 ROAD_GLYPHS = {
@@ -179,6 +180,10 @@ def render(console: tcod.console.Console, world: np.ndarray, gs: GameState) -> N
                 ch, fg = terrain_style(world[cy, cx])
                 console.print(cx, cy, ch, fg=fg, bg=UI["cursor_bg"])
 
+    # Calculations - Right panel
+    garnaries = sum(1 for b in gs.buildings.values() if b == 6)
+    food_cap = 120.0 + 80.0 * garnaries
+    
     # Right panel
     panel_x = MAP_W
     draw_frame(console, panel_x, 0, PANEL_W, MAP_H, "Civarium")
@@ -188,16 +193,17 @@ def render(console: tcod.console.Console, world: np.ndarray, gs: GameState) -> N
     console.print(px, 3, f"Tick: {gs.tick}", fg=UI["text_fg"])
     console.print(px, 4, f"Paused: {gs.paused}", fg=UI["text_fg"])
     console.print(px, 5, f"Speed: {gs.tps:.1f} tps", fg=UI["text_fg"])
-    console.print(px, 6, f"Food: {gs.food:.1f}", fg=UI["text_fg"])
-    console.print(px, 7, f"Morale: {gs.morale:.2f}", fg=UI["text_fg"])
-    console.print(px, 8, f"Wood: {gs.wood:6.1f}", fg=UI["text_fg"])
+    console.print(px, 6, f"Food: {gs.food:6.1f} / {food_cap:5.0f}", fg=UI["text_fg"])
+    console.print(px, 7, f"Garnaries: {garnaries}", fg=UI["text_fg"])
+    console.print(px, 8, f"Morale: {gs.morale:.2f}", fg=UI["text_fg"])
+    console.print(px, 9, f"Wood: {gs.wood:6.1f}", fg=UI["text_fg"])
 
-    console.print(px, 10, "Controls:", fg=UI["title_fg"])
-    console.print(px, 11, "Space: pause", fg=UI["muted_fg"])
-    console.print(px, 12, "+/- : speed", fg=UI["muted_fg"])
-    console.print(px, 13, "Arrows: cursor", fg=UI["muted_fg"])
-    console.print(px, 14, "R: restart", fg=UI["muted_fg"])
-    console.print(px, 15, "Q: quit", fg=UI["muted_fg"])
+    console.print(px, 11, "Controls:", fg=UI["title_fg"])
+    console.print(px, 12, "Space: pause", fg=UI["muted_fg"])
+    console.print(px, 13, "+/- : speed", fg=UI["muted_fg"])
+    console.print(px, 14, "Arrows: cursor", fg=UI["muted_fg"])
+    console.print(px, 15, "R: restart", fg=UI["muted_fg"])
+    console.print(px, 16, "Q: quit", fg=UI["muted_fg"])
 
     console.print(px, 17, "Inspect:", fg=UI["title_fg"])
     if 0 <= cx < MAP_W and 0 <= cy < MAP_H:
