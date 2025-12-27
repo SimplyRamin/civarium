@@ -209,7 +209,8 @@ def render(console: tcod.console.Console, world: np.ndarray, gs: GameState) -> N
     if 0 <= cx < MAP_W and 0 <= cy < MAP_H:
         b = gs.buildings.get((cx, cy))
         if b is not None:
-            bname = {1: "Forum", 2: "House", 3: "Road", 4: "Farm"}.get(b, "Building")
+            bname = {1: "Forum", 2: "House", 3: "Road",
+                     4: "Farm", 5: "Lumber Camp", 6: "Garnary"}.get(b, "Building")
             console.print(px, 18, f"({cx},{cy}) {bname}", fg=UI["text_fg"])
         else:
             code = int(world[cy, cx])

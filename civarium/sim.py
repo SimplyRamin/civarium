@@ -32,6 +32,7 @@ GARNARY_WOOD_COST = 10.0
 BASE_FOOD_CAP = 120.0
 FOOD_CAP_PER_GARNARY = 80.0
 SPOILAGE_RATE = 0.04  # % of food that spoils per tick
+WOOD_RESERVE = 6.0
 
 
 # -------------------
@@ -87,6 +88,8 @@ def is_blocked(gs: GameState, world: np.ndarray, x: int, y: int) -> bool:
     if is_water(world, x, y):
         return True
     b = gs.buildings.get((x, y))
+    if b is None:
+        return False
     return b == FORUM or b == HOUSE     # Roads are walkable
 
 
@@ -444,25 +447,29 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
 
     # simple day cycle of 20 ticks
     phase = gs.tick % 20
-    work_hours = 6 <= phase <= 13
+    work_hours = 2 <= phase <= 17
     for a in gs.actors:
         stick = False
         target = None
         if a.role == "farmer" and a.work is not None:
-            # work hours 6..13
-            if a.work_timer > 0:
-                target = a.work
-                stick = True
-                a.work_timer -= 1
+            # decie if actor should be working now or not
+            want_work = work_hours or (gs.food < 15)
+            if not want_work:
+                a.work_timer = 0
+                target = a.home or forum
+                stick = False
             else:
-                if work_hours:
+                if a.work_timer > 0:
                     target = a.work
-                    # when they arrive, start a work session
-                    if (a.x, a.y) == a.work:
-                        a.work_timer = 6
-                        stick = True
+                    stick = True
+                    a.work_timer -= 1
                 else:
-                    target = a.home or forum
+                    if work_hours:
+                        target = a.work
+                        # when they arrive, start a work session
+                        if (a.x, a.y) == a.work:
+                            a.work_timer = 12
+                            stick = True
         else:
             if forum is None:
                 target = a.home
@@ -503,7 +510,7 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
         if getattr(a, "role", "laborer") == "farmer" and a.work is not None and (a.x, a.y) == a.work:
             staffed += 1
 
-    food_from_staffed = 0.9 * staffed
+    food_from_staffed = 1.1 * staffed
 
     pop = len(gs.actors)
     houses = sum(1 for b in gs.buildings.values() if b == HOUSE)
@@ -520,26 +527,28 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
 
     # houses slightly improve stability; pop consumes food
     production = base_food + food_from_staffed
-    consumption = 0.18 * pop
+    consumption = 0.14 * pop
     gs.food += production - consumption
-    gs.wood += 0.35 * lumbers
+    gs.food = max(0.0, gs.food)
+    gs.wood += 0.15 * lumbers
 
     capacity = houses * 4
 
-    if gs.food < 0:
+    if gs.food <= 0.0:
         gs.morale = max(0.0, gs.morale - 0.02)
         # occasionally lose someone if starving
-        if pop > 0 and rng.random() < 0.005:
+        if pop > 0 and rng.random() < 0.01:
             gs.actors.pop()
+            assign_farmers(gs, rng)
             events.append("Starvation: a peasant was lost.")
-            gs.food = max(gs.food, -10.0)
     else:
         gs.morale = min(1.0, gs.morale + 0.005)
 
     # Occasional
-    if pop < capacity and gs.food > 30 and gs.morale > 0.70 and rng.random() < 0.02:
+    if pop < capacity and gs.food > 40 and gs.morale > 0.70 and rng.random() < 0.02 and staffed >= 1:
         fx, fy = forum if forum is not None else (MAP_W // 2, MAP_H // 2)
         gs.actors.append(Actor(x=fx, y=fy, glyph="@", fg=(230, 230, 230), home=None))
+        assign_farmers(gs, rng)
         events.append("A newcomer arrived at the Forum.")
 
     if gs.tick % 25 == 0:
@@ -576,7 +585,8 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
 
             # Priority 3: if food is near/at cap, build storage (stop waste).
             elif (gs.food >= 0.92 * food_cap
-                  and gs.wood >= GARNARY_WOOD_COST
+                  and gs.wood >= GARNARY_WOOD_COST + WOOD_RESERVE
+                  and lumbers >= 1
                   and farms >= 2
                   and staffed >= 1
                   and garnaries < max(1, farms // 2)):
@@ -586,8 +596,10 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
                 else:
                     events.append("Garnary build failed.")
 
-        if gs.tick % 50 == 0:
-            assign_farmers(gs, rng)
+    if gs.tick % 50 == 0:
+        assign_farmers(gs, rng)
+        farmers = sum(1 for a in gs.actors if a.role == "farmer")
+        add_log(gs, f"Pop={pop} Farms={farms} Farmers={farmers} Staffed={staffed} Food={gs.food:.1f}")
 
     return events
 
