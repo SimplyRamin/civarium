@@ -62,6 +62,21 @@ ROAD_GLYPHS = {
 }
 
 
+def tint(rgb: tuple[int, int, int], mul: float) -> tuple[int, int, int]:
+    r, g, b = rgb
+    return (min(255, int(r*mul)), min(255, int(g*mul)), min(255, int(b*mul)))
+
+
+def blend(rgb: tuple[int, int, int], target: tuple[int, int, int], alpha: float) -> tuple[int, int, int]:
+    r, g, b = rgb
+    tr, tg, tb = target
+    return (
+        int(r*(1-alpha) + tr*alpha),
+        int(g*(1-alpha) + tg*alpha),
+        int(b*(1-alpha) + tb*alpha),
+    )
+
+
 def terrain_style(code: int) -> tuple[str, tuple[int, int, int]]:
     if int(code) == 0:
         return THEME["plains"]
@@ -138,11 +153,19 @@ def road_glyph(gs, x: int, y: int) -> str:
 
 def render(console: tcod.console.Console, world: np.ndarray, gs: GameState) -> None:
     console.clear()
+    season = gs.season.season.value
 
     # Map
     for y in range(MAP_H):
         for x in range(MAP_W):
             ch, fg = terrain_style(world[y, x])
+            # applying seasonal filters
+            if season == "Winter":
+                fg = blend(fg, (235, 235, 245), 0.55)   # wash toward snow / grey
+            elif season == "Autumn":
+                fg = blend(fg, (210, 170, 90), 0.25)    # warm tint
+            elif season == "Spring":
+                fg = blend(fg, (160, 220, 160), 0.18)   # slight green pop
             console.print(x, y, ch, fg=fg)
 
     # Building rendering
@@ -158,7 +181,9 @@ def render(console: tcod.console.Console, world: np.ndarray, gs: GameState) -> N
     for a in gs.actors:
         fg = a.fg
         if getattr(a, "role", "laborer") == "farmer":
-            fg = (230, 210, 120)    # warm / yellowish
+            fg = (230, 210, 120)
+        if getattr(a, "role", "laborer") == "lumberjack":
+            fg = (200, 170, 140)
         console.print(a.x, a.y, a.glyph, fg=fg)
 
     # Cursor highlight
@@ -216,6 +241,13 @@ def render(console: tcod.console.Console, world: np.ndarray, gs: GameState) -> N
             code = int(world[cy, cx])
             tname = {0: "Plains", 1: "Forest", 2: "Water", 3: "Hill"}.get(code, "Unknown")
             console.print(px, 18, f"({cx},{cy}) {tname}", fg=UI["text_fg"])
+        here = [a for a in gs.actors if (a.x, a.y) == (cx, cy)]
+        if here:
+            roles: dict[str, int] = {}
+            for a in here:
+                roles[a.role] = roles.get(a.role, 0) + 1
+            role_str = ", ".join(f"{k}:{v}" for k, v in roles.items())
+            console.print(px, 19, f"Actors: {len(here)} ({role_str})", fg=UI["muted_fg"])
 
     # Bottom log
     log_y = MAP_H

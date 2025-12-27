@@ -53,7 +53,7 @@ class Actor:
     glyph: str
     fg: tuple[int, int, int]
     home: tuple[int, int] | None = None
-    role: str = "laborer"                   # laborer or farmer
+    role: str = "laborer"                   # laborer or farmer or lumber
     work: tuple[int, int] | None = None     # farm tile if farmer
     work_timer: int = 0
 
@@ -121,6 +121,34 @@ def assign_farmers(gs: GameState, rng: np.random.Generator) -> None:
     for a in candidates[:need]:
         a.role = "farmer"
         a.work = farms[int(rng.integers(0, len(farms)))]
+
+
+def assing_lumberjacks(gs: GameState, rng: np.random.Generator) -> None:
+    camps = [pos for pos, b in gs.buildings.items() if b == LUMBER]
+    if not camps:
+        return
+
+    # target ~1 per camp, but don;t steal all farmers
+    pop = len(gs.actors)
+    farms = sum(1 for b in gs.buildings.values() if b == FARM)
+    farmer_target = min(pop, max(1, farms))         # keep atleast this many farmers
+
+    max_lumberjacks = max(0, pop - farmer_target)   # whatever actor is left can be lumberjack
+    target = min(len(camps), max_lumberjacks)
+    if target <= 0:
+        return
+
+    current = [a for a in gs.actors if a.role == "lumberjack" and a.work is not None]
+    need = max(0, target - len(current))
+    if need == 0:
+        return
+
+    candidates = [a for a in gs.actors if a.role == "laborer"]
+    rng.shuffle(candidates)
+
+    for a in candidates[:need]:
+        a.role = "lumberjack"
+        a.work = camps[int(rng.integers(0, len(camps)))]
 
 
 def place_near_center_nonwater(gs: GameState, world: np.ndarray) -> tuple[int, int]:
@@ -332,6 +360,7 @@ def try_build_lumber(gs: GameState, world: np.ndarray, around: tuple[int, int], 
         gs.wood -= LUMBER_WOOD_COST
         start = nearest_road(gs, (x, y)) or around
         carve_road(gs, world, start, (x, y))
+        assing_lumberjacks(gs, rng)
 
     # prefer near forum but expand out if no forests nearby
     start_r = 10
@@ -442,6 +471,7 @@ def reset_run(gs: GameState, world: np.ndarray) -> None:
     add_log(gs, f"Houses: {len(houses)} | Peasants: {len(gs.actors)}")
 
     assign_farmers(gs, rng)
+    assing_lumberjacks(gs, rng)
 
 
 def update(gs: GameState, world: np.ndarray) -> list[str]:
@@ -462,7 +492,7 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
     for a in gs.actors:
         stick = False
         target = None
-        if a.role == "farmer" and a.work is not None:
+        if a.role in ("farmer", "lumberjack") and a.work is not None:
             # decie if actor should be working now or not
             want_work = work_hours or (gs.food < 15)
             if not want_work:
@@ -516,18 +546,26 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
     base_food = 0.8
 
     # Count staffed farms: farmers currently standing on their assigned work tile.
-    staffed = 0
+    staffed_farmer = 0
     for a in gs.actors:
-        if getattr(a, "role", "laborer") == "farmer" and a.work is not None and (a.x, a.y) == a.work:
-            staffed += 1
+        if a.role == "farmer" and a.work is not None and (a.x, a.y) == a.work:
+            staffed_farmer += 1
+
+    # Count staffed lumbers
+    staffed_lumber = 0
+    for a in gs.actors:
+        if a.role == "lumberjack" and a.work is not None and (a.x, a.y) == a.work:
+            staffed_lumber += 1
+
+    # Overall Staffed
+    # staffed = sum([staffed_farmer, staffed_lumber])
 
     # Seasons variables
     season = gs.season.season
     winter = season.name == "WINTER"
-    prewinter = season.name in ("SUMMER", "AUTUMN")
     farm_multiplier = FARM_MULT[season]
 
-    food_from_staffed = 1.1 * staffed * farm_multiplier
+    food_from_staffed = 1.1 * staffed_farmer * farm_multiplier
 
     pop = len(gs.actors)
     houses = sum(1 for b in gs.buildings.values() if b == HOUSE)
@@ -547,7 +585,8 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
     consumption = 0.14 * pop
     gs.food += production - consumption
     gs.food = max(0.0, gs.food)
-    gs.wood += 0.15 * lumbers
+
+    gs.wood += 0.20 * staffed_lumber
 
     capacity = houses * 4
 
@@ -564,10 +603,15 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
     # Immigration
     # Immigration in winter is more restricted due to the fact farming is not available
     food_req = 40 if not winter else 70
-    if pop < capacity and gs.food > food_req and gs.morale > 0.70 and rng.random() < 0.02 and staffed >= 1:
+    if (pop < capacity
+       and gs.food > food_req
+       and gs.morale > 0.70
+       and rng.random() < 0.02
+       and staffed_farmer >= 1):
         fx, fy = forum if forum is not None else (MAP_W // 2, MAP_H // 2)
         gs.actors.append(Actor(x=fx, y=fy, glyph="@", fg=(230, 230, 230), home=None))
         assign_farmers(gs, rng)
+        assing_lumberjacks(gs, rng)
         events.append("A newcomer arrived at the Forum.")
 
     if gs.tick % 25 == 0:
@@ -607,7 +651,7 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
                   and gs.wood >= GARNARY_WOOD_COST + WOOD_RESERVE
                   and lumbers >= 1
                   and farms >= 2
-                  and staffed >= 1
+                  and staffed_farmer >= 1
                   and garnaries < max(1, farms // 2)):
                 built = try_build_garnary(gs, world, forum, rng)
                 if built:
@@ -615,10 +659,10 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
                 else:
                     events.append("Garnary build failed.")
 
-    if gs.tick % 50 == 0:
-        assign_farmers(gs, rng)
-        farmers = sum(1 for a in gs.actors if a.role == "farmer")
-        add_log(gs, f"Pop={pop} Farms={farms} Farmers={farmers} Staffed={staffed} Food={gs.food:.1f}")
+    # if gs.tick % 50 == 0:
+    #     assign_farmers(gs, rng)
+    #     farmers = sum(1 for a in gs.actors if a.role == "farmer")
+    #     add_log(gs, f"Pop={pop} Farms={farms} Farmers={farmers} Staffed={staffed} Food={gs.food:.1f}")
 
     return events
 
