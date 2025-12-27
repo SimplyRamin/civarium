@@ -190,7 +190,7 @@ def render(console: tcod.console.Console, world: np.ndarray, gs: GameState) -> N
 
     px = panel_x + 2
     console.print(px, 2, f"Seed: {gs.seed}", fg=UI["text_fg"])
-    console.print(px, 3, f"Tick: {gs.tick}", fg=UI["text_fg"])
+    console.print(px, 3, f"Season: {gs.season.season.value} ({gs.season.ticks_left})", fg=UI["text_fg"])
     console.print(px, 4, f"Paused: {gs.paused}", fg=UI["text_fg"])
     console.print(px, 5, f"Speed: {gs.tps:.1f} tps", fg=UI["text_fg"])
     console.print(px, 6, f"Food: {gs.food:6.1f} / {food_cap:5.0f}", fg=UI["text_fg"])

@@ -11,6 +11,7 @@ from typing import Deque, Tuple
 import numpy as np
 
 from .worldgen import MAP_W, MAP_H
+from .season import SeasonClock, Season
 
 LOG_H = 8
 PLAZA_R = 3
@@ -33,6 +34,13 @@ BASE_FOOD_CAP = 120.0
 FOOD_CAP_PER_GARNARY = 80.0
 SPOILAGE_RATE = 0.04  # % of food that spoils per tick
 WOOD_RESERVE = 6.0
+
+FARM_MULT = {
+    Season.SPRING: 0.5,
+    Season.SUMMER: 1.0,
+    Season.AUTUMN: 1.5,
+    Season.WINTER: 0.0
+}
 
 
 # -------------------
@@ -63,6 +71,7 @@ class GameState:
     food: float = 120.0
     morale: float = 0.75
     wood: float = 30.0
+    season: SeasonClock = field(default_factory=SeasonClock)
 
 
 def add_log(gs: GameState, msg: str) -> None:
@@ -440,6 +449,8 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
         return []
 
     gs.tick += 1
+    gs.season.advance()
+
     events: list[str] = []
 
     rng = np.random.default_rng(gs.seed + gs.tick)
@@ -510,7 +521,13 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
         if getattr(a, "role", "laborer") == "farmer" and a.work is not None and (a.x, a.y) == a.work:
             staffed += 1
 
-    food_from_staffed = 1.1 * staffed
+    # Seasons variables
+    season = gs.season.season
+    winter = season.name == "WINTER"
+    prewinter = season.name in ("SUMMER", "AUTUMN")
+    farm_multiplier = FARM_MULT[season]
+
+    food_from_staffed = 1.1 * staffed * farm_multiplier
 
     pop = len(gs.actors)
     houses = sum(1 for b in gs.buildings.values() if b == HOUSE)
@@ -544,8 +561,10 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
     else:
         gs.morale = min(1.0, gs.morale + 0.005)
 
-    # Occasional
-    if pop < capacity and gs.food > 40 and gs.morale > 0.70 and rng.random() < 0.02 and staffed >= 1:
+    # Immigration
+    # Immigration in winter is more restricted due to the fact farming is not available
+    food_req = 40 if not winter else 70
+    if pop < capacity and gs.food > food_req and gs.morale > 0.70 and rng.random() < 0.02 and staffed >= 1:
         fx, fy = forum if forum is not None else (MAP_W // 2, MAP_H // 2)
         gs.actors.append(Actor(x=fx, y=fy, glyph="@", fg=(230, 230, 230), home=None))
         assign_farmers(gs, rng)
@@ -570,7 +589,7 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
                         events.append("Need wood for housing.")
 
             # Priority 2: food pressure -> try farm, else get wood.
-            elif gs.food < 60 and farms < desired_farms:
+            elif (not winter) and gs.food < 60 and farms < desired_farms:
                 if gs.wood >= FARM_WOOD_COST:
                     built = try_build_farm(gs, world, forum, rng)
                     if built:
