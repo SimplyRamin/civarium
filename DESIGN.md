@@ -37,3 +37,4 @@
 - ticks or days should be refactored. for instance farmers are not reaching home and new day starts for them. maybe we could use other peasants for the other purposes.
 - people should follow roads prefarably, when a road is available.
 - add information to the side, for instance how many peasants are there, how many are farmers and how many are peasants and classes.
+- when fired destroyed a lumber camp, the lumberjack still moves to that point and generated wood.

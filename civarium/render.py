@@ -208,6 +208,7 @@ def render(console: tcod.console.Console, world: np.ndarray, gs: GameState) -> N
     # Calculations - Right panel
     garnaries = sum(1 for b in gs.buildings.values() if b == 6)
     food_cap = 120.0 + 80.0 * garnaries
+    event_str = "-" if not gs.active_event else f"{gs.active_event} ({gs.event_ticks_left})"
 
     # Right panel
     panel_x = MAP_W
@@ -216,31 +217,32 @@ def render(console: tcod.console.Console, world: np.ndarray, gs: GameState) -> N
     px = panel_x + 2
     console.print(px, 2, f"Seed: {gs.seed}", fg=UI["text_fg"])
     console.print(px, 3, f"Season: {gs.season.season.value} ({gs.season.ticks_left})", fg=UI["text_fg"])
-    console.print(px, 4, f"Paused: {gs.paused}", fg=UI["text_fg"])
-    console.print(px, 5, f"Speed: {gs.tps:.1f} tps", fg=UI["text_fg"])
-    console.print(px, 6, f"Food: {gs.food:6.1f} / {food_cap:5.0f}", fg=UI["text_fg"])
-    console.print(px, 7, f"Garnaries: {garnaries}", fg=UI["text_fg"])
-    console.print(px, 8, f"Morale: {gs.morale:.2f}", fg=UI["text_fg"])
-    console.print(px, 9, f"Wood: {gs.wood:6.1f}", fg=UI["text_fg"])
+    console.print(px, 4, f"Event: {event_str}", fg=UI["text_fg"])
+    console.print(px, 5, f"Paused: {gs.paused}", fg=UI["text_fg"])
+    console.print(px, 6, f"Speed: {gs.tps:.1f} tps", fg=UI["text_fg"])
+    console.print(px, 7, f"Food: {gs.food:6.1f} / {food_cap:5.0f}", fg=UI["text_fg"])
+    console.print(px, 8, f"Garnaries: {garnaries}", fg=UI["text_fg"])
+    console.print(px, 9, f"Morale: {gs.morale:.2f}", fg=UI["text_fg"])
+    console.print(px, 10, f"Wood: {gs.wood:6.1f}", fg=UI["text_fg"])
 
-    console.print(px, 11, "Controls:", fg=UI["title_fg"])
-    console.print(px, 12, "Space: pause", fg=UI["muted_fg"])
-    console.print(px, 13, "+/- : speed", fg=UI["muted_fg"])
-    console.print(px, 14, "Arrows: cursor", fg=UI["muted_fg"])
-    console.print(px, 15, "R: restart", fg=UI["muted_fg"])
-    console.print(px, 16, "Q: quit", fg=UI["muted_fg"])
+    console.print(px, 12, "Controls:", fg=UI["title_fg"])
+    console.print(px, 13, "Space: pause", fg=UI["muted_fg"])
+    console.print(px, 14, "+/- : speed", fg=UI["muted_fg"])
+    console.print(px, 15, "Arrows: cursor", fg=UI["muted_fg"])
+    console.print(px, 16, "R: restart", fg=UI["muted_fg"])
+    console.print(px, 17, "Q: quit", fg=UI["muted_fg"])
 
-    console.print(px, 17, "Inspect:", fg=UI["title_fg"])
+    console.print(px, 18, "Inspect:", fg=UI["title_fg"])
     if 0 <= cx < MAP_W and 0 <= cy < MAP_H:
         b = gs.buildings.get((cx, cy))
         if b is not None:
             bname = {1: "Forum", 2: "House", 3: "Road",
                      4: "Farm", 5: "Lumber Camp", 6: "Garnary"}.get(b, "Building")
-            console.print(px, 18, f"({cx},{cy}) {bname}", fg=UI["text_fg"])
+            console.print(px, 19, f"({cx},{cy}) {bname}", fg=UI["text_fg"])
         else:
             code = int(world[cy, cx])
             tname = {0: "Plains", 1: "Forest", 2: "Water", 3: "Hill"}.get(code, "Unknown")
-            console.print(px, 18, f"({cx},{cy}) {tname}", fg=UI["text_fg"])
+            console.print(px, 19, f"({cx},{cy}) {tname}", fg=UI["text_fg"])
         here = [a for a in gs.actors if (a.x, a.y) == (cx, cy)]
         if here:
             roles: dict[str, int] = {}

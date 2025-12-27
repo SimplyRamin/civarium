@@ -72,6 +72,11 @@ class GameState:
     morale: float = 0.75
     wood: float = 30.0
     season: SeasonClock = field(default_factory=SeasonClock)
+    active_event: str | None = None
+    event_ticks_left: int = 0
+    farm_mult_mod: float = 1.0
+    wood_mult_mod: float = 1.0
+    consumption_mult_mod: float = 1.0
 
 
 def add_log(gs: GameState, msg: str) -> None:
@@ -431,6 +436,57 @@ def _try_place_with_expanding_radius(
     return False
 
 
+def _clear_event(gs: GameState) -> None:
+    gs.active_event = None
+    gs.event_ticks_left = 0
+    gs.farm_mult_mod = 1.0
+    gs.wood_mult_mod = 1.0
+    gs.consumption_mult_mod = 1.0
+
+
+def _start_event(gs: GameState, name: str, duration: int,
+                 farm_mult: float = 1.0,
+                 wood_mult: float = 1.0,
+                 consumption_mult: float = 1.0) -> None:
+    gs.active_event = name
+    gs.event_ticks_left = duration
+    gs.farm_mult_mod = farm_mult
+    gs.wood_mult_mod = wood_mult
+    gs.consumption_mult_mod = consumption_mult
+
+
+def _tick_event(gs: GameState, out_events: list[str]) -> None:
+    """
+    Decrement even timer; clear and log when it ends.
+    """
+    if gs.active_event is None:
+        return
+    gs.event_ticks_left -= 1
+    if gs.event_ticks_left <= 0:
+        ended = gs.active_event
+        _clear_event(gs)
+        out_events.append(f"Event ended: {ended}.")
+
+
+def _apply_fire(gs: GameState, rng: np.random.Generator, out_events: list[str]) -> None:
+    """
+    Remove one random non-road building (avoid forum); morale penalty.
+    """
+    candidates = [(pos, b) for pos, b in gs.buildings.items() if b not in (FORUM, ROAD)]
+    if not candidates:
+        out_events.append("Fire burned out harmlessly")
+        return
+
+    pos, b = candidates[int(rng.integers(0, len(candidates)))]
+    del gs.buildings[pos]
+
+    # morale hit
+    gs.morale = (max(0.0, gs.morale - 0.1))
+
+    bname = {HOUSE: "House", FARM: "Farm", LUMBER: "Lumber Camp", GARNARY: "Garnary"}.get(b, "Building")
+    out_events.append(f"Fire destroyed a {bname} at {pos}.")
+
+
 def reset_run(gs: GameState, world: np.ndarray) -> None:
     gs.tick = 0
     gs.paused = False
@@ -442,6 +498,13 @@ def reset_run(gs: GameState, world: np.ndarray) -> None:
     gs.food = 80.0
     gs.morale = 0.75
     gs.wood = 30.0
+
+    # reset events / modifiers
+    gs.active_event = None
+    gs.event_ticks_left = 0
+    gs.farm_mult_mod = 1.0
+    gs.wood_mult_mod = 1.0
+    gs.consumption_mult_mod = 1.0
 
     # Place Forum
     fx, fy = place_near_center_nonwater(gs, world)
@@ -484,6 +547,29 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
     events: list[str] = []
 
     rng = np.random.default_rng(gs.seed + gs.tick)
+
+    # events: tick down active event
+    _tick_event(gs, events)
+
+    # events: chance to start a new one (only if none active)
+    season = gs.season.season
+    if gs.active_event is None:
+        # keep probabilities small; tune later
+        if season == Season.SUMMER and rng.random() < 0.0010:
+            _start_event(gs, "Drought", duration=60, farm_mult=0.6)
+            events.append("Event Started: Drought (farm yield reduced).")
+
+        elif season == Season.AUTUMN and rng.random() < 0.0010:
+            _start_event(gs, "Good Harvest", duration=40, farm_mult=1.6)
+            events.append("Event started: Good Harvest (farm yield boosted).")
+
+        elif rng.random() < 0.0006:
+            # Fire: small destructive shock (no modifier duration needed)
+            # applying effect instantly and then run a short morale / consumption penalty.
+            _start_event(gs, "Fire", duration=25, consumption_mult=1.05)
+            events.append("Event started: Fire!")
+            # apply immediate damage
+            _apply_fire(gs, rng, events)
     forum = get_forum_pos(gs)
 
     # simple day cycle of 20 ticks
@@ -565,7 +651,7 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
     winter = season.name == "WINTER"
     farm_multiplier = FARM_MULT[season]
 
-    food_from_staffed = 1.1 * staffed_farmer * farm_multiplier
+    food_from_staffed = 1.1 * staffed_farmer * farm_multiplier * gs.farm_mult_mod
 
     pop = len(gs.actors)
     houses = sum(1 for b in gs.buildings.values() if b == HOUSE)
@@ -582,11 +668,11 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
 
     # houses slightly improve stability; pop consumes food
     production = base_food + food_from_staffed
-    consumption = 0.14 * pop
+    consumption = 0.14 * pop * gs.consumption_mult_mod
     gs.food += production - consumption
     gs.food = max(0.0, gs.food)
 
-    gs.wood += 0.20 * staffed_lumber
+    gs.wood += 0.20 * staffed_lumber * gs.wood_mult_mod
 
     capacity = houses * 4
 
