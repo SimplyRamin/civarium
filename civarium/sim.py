@@ -18,6 +18,14 @@ FORUM = 1
 HOUSE = 2
 ROAD = 3
 FARM = 4
+LUMBER = 5
+
+# -------------------
+# Costs
+# -------------------
+HOUSE_WOOD_COST = 8.0
+FARM_WOOD_COST = 4.0
+LUMBER_WOOD_COST = 2.0
 
 
 # -------------------
@@ -46,6 +54,7 @@ class GameState:
     buildings: dict[tuple[int, int], int] = field(default_factory=dict)
     food: float = 120.0
     morale: float = 0.75
+    wood: float = 30.0
 
 
 def add_log(gs: GameState, msg: str) -> None:
@@ -61,6 +70,10 @@ def get_forum_pos(gs: GameState) -> tuple[int, int] | None:
 
 def is_water(world: np.ndarray, x: int, y: int) -> bool:
     return int(world[y, x]) == 2
+
+
+def is_forest(world: np.ndarray, x: int, y: int) -> bool:
+    return int(world[y, x]) == 1
 
 
 def is_blocked(gs: GameState, world: np.ndarray, x: int, y: int) -> bool:
@@ -100,6 +113,18 @@ def place_near_center_nonwater(gs: GameState, world: np.ndarray) -> tuple[int, i
                 if 0 <= x < MAP_W and 0 <= y < MAP_H and not is_water(world, x, y):
                     return (x, y)
     return (cx, cy)
+
+
+def near_forest(world: np.ndarray, x: int, y: int) -> bool:
+    # 8-neighborhood
+    for dy in (-1, 0, 1):
+        for dx in (-1, 0, 1):
+            if dx == 0 and dy == 0:
+                continue
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < MAP_W and 0 <= ny < MAP_H and is_forest(world, nx, ny):
+                return True
+    return False
 
 
 def carve_road(gs: GameState, world: np.ndarray, a: tuple[int, int], b: tuple[int, int]) -> None:
@@ -202,13 +227,14 @@ def can_place_farm(gs: GameState, world: np.ndarray, x: int, y: int) -> bool:
 def try_build_farm(gs: GameState, world: np.ndarray, around: tuple[int, int], rng: np.random.Generator) -> bool:
     def place(gs: GameState, world: np.ndarray, x: int, y: int):
         gs.buildings[(x, y)] = FARM
+        gs.wood -= FARM_WOOD_COST
         start = nearest_road(gs, (x, y)) or around
         carve_road(gs, world, start, (x, y))
         assign_farmers(gs, rng)
 
     start_r = 10 + len([b for b in gs.buildings.values() if b == FARM]) // 2
     return _try_place_with_expanding_radius(
-        gs, world, around, rng,         # type: ignore
+        gs, world, around, rng,
         can_place=can_place_farm,
         place=place,
         start_r=start_r,
@@ -230,6 +256,7 @@ def try_build_house(gs: GameState, world: np.ndarray, center: tuple[int, int]) -
 
     def place(x: int, y: int) -> None:
         gs.buildings[(x, y)] = HOUSE
+        gs.wood -= HOUSE_WOOD_COST
         start = nearest_road(gs, (x, y)) or center
         carve_road(gs, world, start, (x, y))
 
@@ -264,6 +291,37 @@ def try_build_house(gs: GameState, world: np.ndarray, center: tuple[int, int]) -
                 return True
 
     return False
+
+
+def can_place_lumber(gs: GameState, world: np.ndarray, x: int, y: int) -> bool:
+    if not (0 <= x < MAP_W and 0 <= y < MAP_H):
+        return False
+    if is_water(world, x, y):
+        return False
+
+    # don't overwrite anything, including roads
+    if (x, y) in gs.buildings:
+        return False
+
+    # must be on forest or next to forest
+    return is_forest(world, x, y) or near_forest(world, x, y)
+
+
+def try_build_lumber(gs: GameState, world: np.ndarray, around: tuple[int, int], rng: np.random.Generator) -> bool:
+    def place(gs: GameState, world: np.ndarray, x: int, y: int):
+        gs.buildings[(x, y)] = LUMBER
+        gs.wood -= LUMBER_WOOD_COST
+        start = nearest_road(gs, (x, y)) or around
+        carve_road(gs, world, start, (x, y))
+
+    # prefer near forum but expand out if no forests nearby
+    start_r = 10
+    return _try_place_with_expanding_radius(
+        gs, world, around, rng,
+        can_place=can_place_lumber,
+        place=place,
+        start_r=start_r,
+    )
 
 
 def _try_place_with_expanding_radius(
@@ -305,6 +363,7 @@ def reset_run(gs: GameState, world: np.ndarray) -> None:
     # reset economy
     gs.food = 80.0
     gs.morale = 0.75
+    gs.wood = 30.0
 
     # Place Forum
     fx, fy = place_near_center_nonwater(gs, world)
@@ -390,24 +449,25 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
 
         if a.role == "farmer" and a.work is not None and (a.x, a.y) == a.work:
             work_bonus += 0.08
-        gs.food += work_bonus
 
         nx, ny = a.x + dx, a.y + dy
         if 0 <= nx < MAP_W and 0 <= ny < MAP_H and int(world[ny, nx]) != 2:
             a.x, a.y = nx, ny
-
-    # work bonus: farmers on their farm add food
+    
+    gs.food += work_bonus
 
     # Economy
     # -----------------------------
     pop = len(gs.actors)
     houses = sum(1 for b in gs.buildings.values() if b == HOUSE)
     farms = sum(1 for b in gs.buildings.values() if b == FARM)
+    lumbers = sum(1 for b in gs.buildings.values() if b == LUMBER)
 
-    # very simple: houses slightly improve stability; pop consumes food
+    # houses slightly improve stability; pop consumes food
     production = 1.1 * houses + 2.5 + 2.0 * farms
     consumption = 0.18 * pop
     gs.food += production - consumption
+    gs.wood += 0.35 * lumbers
 
     capacity = houses * 4
 
@@ -427,21 +487,39 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
         gs.actors.append(Actor(x=fx, y=fy, glyph="@", fg=(230, 230, 230), home=None))
         events.append("A newcomer arrived at the Forum.")
 
-    # if gs.tick % int(max(1, gs.tps)) == 0:
-    #     events.append(f"Tick {gs.tick}: peasants wander...")
-
     if gs.tick % 25 == 0:
         forum = get_forum_pos(gs)
         if forum is not None:
+            built = False
             # Priority 1: if housing is tight, built a house.
             if pop >= capacity - 1:
-                built = try_build_house(gs, world, forum)   # type: ignore
-                events.append("Built a house." if built else "House build failed (no space).")
+                if gs.wood >= HOUSE_WOOD_COST:
+                    built = try_build_house(gs, world, forum)
+                    if built:
+                        events.append("Built a house.")
+                    else:
+                        events.append("House build failed (no space).")
+                else:
+                    if gs.wood >= LUMBER_WOOD_COST and try_build_lumber(gs, world, forum, rng):
+                        events.append("Built a lumber camp.")
+                    else:
+                        events.append("Need wood for housing.")
 
-        # Priority 2: otherwise, keep farms >= houses or build when food is low
-            elif gs.food < 60 or farms < max(1, houses):
-                built = try_build_farm(gs, world, forum, rng)   # type: ignore
-                events.append("Built a farm." if built else "Farm build failed (no plains).")
+        # Priority 2: food pressure -> try farm, else get wood.
+            else:
+                need_farm = (gs.food < 60) or (farms < max(1, houses))
+                if need_farm:
+                    if gs.wood >= FARM_WOOD_COST:
+                        built = try_build_farm(gs, world, forum, rng)
+                        if built:
+                            events.append("Built a farm.")
+                        else:
+                            events.append("Farm build failed.")
+                    else:
+                        if gs.wood >= LUMBER_WOOD_COST and try_build_lumber(gs, world, forum, rng):
+                            events.append("Built a lumber camp.")
+                        else:
+                            events.append("Need wood for farms.")
     return events
 
 

@@ -42,6 +42,7 @@ BUILDING_GLYPHS = {
     2: ("⌂", (180, 160, 120)),      # House
     3: ("─", (140, 140, 140)),      # Road
     4: ("░", (120, 200, 120)),      # Farm
+    5: ("£", (160, 120, 80)),       # Lumber Camp
 }
 
 ROAD_GLYPHS = {
@@ -189,24 +190,25 @@ def render(console: tcod.console.Console, world: np.ndarray, gs: GameState) -> N
     console.print(px, 5, f"Speed: {gs.tps:.1f} tps", fg=UI["text_fg"])
     console.print(px, 6, f"Food: {gs.food:.1f}", fg=UI["text_fg"])
     console.print(px, 7, f"Morale: {gs.morale:.2f}", fg=UI["text_fg"])
+    console.print(px, 8, f"Wood: {gs.wood:6.1f}", fg=UI["text_fg"])
 
-    console.print(px, 9, "Controls:", fg=UI["title_fg"])
-    console.print(px, 10, "Space: pause", fg=UI["muted_fg"])
-    console.print(px, 11, "+/- : speed", fg=UI["muted_fg"])
-    console.print(px, 12, "Arrows: cursor", fg=UI["muted_fg"])
-    console.print(px, 13, "R: restart", fg=UI["muted_fg"])
-    console.print(px, 14, "Q: quit", fg=UI["muted_fg"])
+    console.print(px, 10, "Controls:", fg=UI["title_fg"])
+    console.print(px, 11, "Space: pause", fg=UI["muted_fg"])
+    console.print(px, 12, "+/- : speed", fg=UI["muted_fg"])
+    console.print(px, 13, "Arrows: cursor", fg=UI["muted_fg"])
+    console.print(px, 14, "R: restart", fg=UI["muted_fg"])
+    console.print(px, 15, "Q: quit", fg=UI["muted_fg"])
 
-    console.print(px, 14, "Inspect:", fg=UI["title_fg"])
+    console.print(px, 17, "Inspect:", fg=UI["title_fg"])
     if 0 <= cx < MAP_W and 0 <= cy < MAP_H:
         b = gs.buildings.get((cx, cy))
         if b is not None:
             bname = {1: "Forum", 2: "House", 3: "Road", 4: "Farm"}.get(b, "Building")
-            console.print(px, 15, f"({cx},{cy}) {bname}", fg=UI["text_fg"])
+            console.print(px, 18, f"({cx},{cy}) {bname}", fg=UI["text_fg"])
         else:
             code = int(world[cy, cx])
             tname = {0: "Plains", 1: "Forest", 2: "Water", 3: "Hill"}.get(code, "Unknown")
-            console.print(px, 15, f"({cx},{cy}) {tname}", fg=UI["text_fg"])
+            console.print(px, 18, f"({cx},{cy}) {tname}", fg=UI["text_fg"])
 
     # Bottom log
     log_y = MAP_H

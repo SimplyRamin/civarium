@@ -28,3 +28,9 @@
 
 ## Non-goals (for now)
 - combat, diplomacy, tech tree, pathfindings, UI polish
+
+
+
+## Self notes
+- make production of the foods only when farmers are at their farms and not wandering.
+- add information to the side, for instance how many peasants are there, how many are farmers and how many are peasants and classes.
