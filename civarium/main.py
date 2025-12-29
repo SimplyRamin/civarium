@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 import tcod
 import numpy as np
+import argparse
 
 from .render import SCREEN_H, SCREEN_W, render
 from .sim import GameState, add_log, new_game_state, reset_run, update
@@ -53,7 +54,75 @@ def restart_world(gs: GameState) -> np.ndarray:
     return world
 
 
+def run_headless(seed: int | None, years: int, max_ticks: int | None, print_all: bool) -> None:
+    """
+    Run the simulation without rendering (fast), printing yearly summaries and a final snapshot.
+    """
+    # Create state / world
+    gs: GameState = new_game_state()
+    if seed is not None:
+        gs.seed = seed
+    world: np.ndarray = make_world(gs.seed)
+    reset_run(gs, world)
+
+    # Optional: initial info
+    print(f"Civarium headless | seed={gs.seed} | target_years={years}")
+
+    ticks = 0
+    last_year_printed = 0
+
+    while gs.year <= years:
+        msgs = update(gs, world)
+        ticks += 1
+
+        # log + print selectively
+        for m in msgs:
+            add_log(gs, m)
+
+            # If you wrapped year summaries into multiple lines, printing all lines is OK.
+            is_year_line = m.startswith("Year ") or m.startswith("=== Year")
+            if print_all or is_year_line:
+                print(m)
+
+        # stop conditions
+        if max_ticks is not None and ticks >= max_ticks:
+            print(f"Stopped at max_ticks={max_ticks}.")
+            break
+
+        # small protection: avoid infinite loops if year counts breaks
+        if gs.year == last_year_printed:
+            pass
+        else:
+            last_year_printed = gs.year
+
+    # Final snapshot
+    houses = sum(1 for b in gs.buildings.values() if b == 1)        # HOUSE
+    farms = sum(1 for b in gs.buildings.values() if b == 2)         # FARM
+    roads = sum(1 for b in gs.buildings.values() if b == 3)         # ROAD
+    lumbers = sum(1 for b in gs.buildings.values() if b == 4)       # LUMBER
+    garnaries = sum(1 for b in gs.buildings.values() if b == 5)     # GARNARY
+    bridges = sum(1 for b in gs.buildings.values() if b == 7)       # BRIDGE (if you kept 7)
+
+    print("\n--- Final Snapshot ---")
+    print(f"Year={gs.year} Tick={gs.tick}")
+    print(f"Pop={len(gs.actors)} Food={gs.food:.1f} Wood={gs.wood:.1f} Morale={gs.morale:.2f}")
+    print(f"Buildings: H={houses} F={farms} L={lumbers} G={garnaries} Roads={roads} Bridges={bridges}")
+    print("----------------------")
+
+
 def main() -> None:
+    parser = argparse.ArgumentParser(prog="civarium")
+    parser.add_argument("--headless", action="store_true", help="Run without rendering (fast).")
+    parser.add_argument("--seed", type=int, default=None, help="Seed for world generation.")
+    parser.add_argument("--years", type=int, default=20, help="How many years to simulate in headless mode.")
+    parser.add_argument("--max-ticks", type=int, default=None, help="Hard cap on ticks (safety).")
+    parser.add_argument("--print-all", action="store_true", help="Print all event messages, not just year lines.")
+    args = parser.parse_args()
+
+    if args.headless:
+        run_headless(seed=args.seed, years=args.years, max_ticks=args.max_ticks, print_all=args.print_all)
+        return
+
     bisasm = tcod.tileset.load_tilesheet(
         str(BISASM_PATH), columns=16, rows=16, charmap=tcod.tileset.CHARMAP_CP437
     )
