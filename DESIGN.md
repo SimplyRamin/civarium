@@ -32,3 +32,5 @@
 
 
 ## Self notes
+- we should have laborers turn to guards and they roam the village.
+- we should burn wood more faster like food. for instance we should make wood consumed in the winter as burning things and etc.

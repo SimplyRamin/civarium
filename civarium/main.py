@@ -11,6 +11,7 @@ from pathlib import Path
 import tcod
 import numpy as np
 import argparse
+import csv
 
 from .render import SCREEN_H, SCREEN_W, render
 from .sim import GameState, add_log, new_game_state, reset_run, update
@@ -25,6 +26,8 @@ TYR_PATH = ROOT / "assets" / "tilesets" / "Tyr.png"
 BISASM_PATH = ROOT / "assets" / "tilesets" / "Bisasam_16x16.png"
 # TILESET_PATH = ROOT / "assets" / "tilesets" / "Aesomatica_16x16.png"
 # TILESET_PATH = ROOT / "assets" / "tilesets" / "Redjack17.png"
+OUT_DIR = ROOT / "out"
+OUT_DIR.mkdir(exist_ok=True)
 
 
 def clamp(v: int, lo: int, hi: int) -> int:
@@ -60,6 +63,7 @@ def run_headless(seed: int | None, years: int, max_ticks: int | None, print_all:
     """
     # Create state / world
     gs: GameState = new_game_state()
+    year_rows: list[dict] = []
     if seed is not None:
         gs.seed = seed
     world: np.ndarray = make_world(gs.seed)
@@ -90,24 +94,55 @@ def run_headless(seed: int | None, years: int, max_ticks: int | None, print_all:
             break
 
         # small protection: avoid infinite loops if year counts breaks
-        if gs.year == last_year_printed:
-            pass
-        else:
-            last_year_printed = gs.year
+        if gs.year != last_year_printed:
+            ys = gs.stats   # stats were reset for the *new* year, so we want previous
+            prev_year = gs.year - 1
 
-    # Final snapshot
-    houses = sum(1 for b in gs.buildings.values() if b == 1)        # HOUSE
-    farms = sum(1 for b in gs.buildings.values() if b == 2)         # FARM
-    roads = sum(1 for b in gs.buildings.values() if b == 3)         # ROAD
-    lumbers = sum(1 for b in gs.buildings.values() if b == 4)       # LUMBER
-    garnaries = sum(1 for b in gs.buildings.values() if b == 5)     # GARNARY
-    bridges = sum(1 for b in gs.buildings.values() if b == 7)       # BRIDGE (if you kept 7)
+            # snapshot building
+            houses = sum(1 for b in gs.buildings.values() if b == 1)        # HOUSE
+            farms = sum(1 for b in gs.buildings.values() if b == 2)         # FARM
+            roads = sum(1 for b in gs.buildings.values() if b == 3)         # ROAD
+            lumbers = sum(1 for b in gs.buildings.values() if b == 4)       # LUMBER
+            garnaries = sum(1 for b in gs.buildings.values() if b == 5)     # GARNARY
+            bridges = sum(1 for b in gs.buildings.values() if b == 7)       # BRIDGE (if you kept 7)
+
+            year_rows.append({
+                "seed": gs.seed,
+                "year": prev_year,
+                "pop_peak": ys.pop_peak,
+                "deaths": ys.deaths,
+                "immigrants": ys.immigrants,
+                "events": ys.events_started,
+                "food_avg": round(ys.food_avg(), 2),
+                "food_min": round(ys.food_min, 2),
+                "food_max": round(ys.food_max, 2),
+                "wood_avg": round(ys.wood_avg(), 2),
+                "wood_min": round(ys.wood_min, 2),
+                "wood_max": round(ys.wood_max, 2),
+                "houses": houses,
+                "farms": farms,
+                "lumbers": lumbers,
+                "garnaries": garnaries,
+                "roads": roads,
+                "bridges": bridges,
+            })
+
+            last_year_printed = gs.year
 
     print("\n--- Final Snapshot ---")
     print(f"Year={gs.year} Tick={gs.tick}")
     print(f"Pop={len(gs.actors)} Food={gs.food:.1f} Wood={gs.wood:.1f} Morale={gs.morale:.2f}")
     print(f"Buildings: H={houses} F={farms} L={lumbers} G={garnaries} Roads={roads} Bridges={bridges}")
     print("----------------------")
+
+    csv_path = OUT_DIR / f"yearly_seed{gs.seed}.csv"
+
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=year_rows[0].keys())
+        writer.writeheader()
+        writer.writerows(year_rows)
+
+    print(f"\nSaved yearly stats to {csv_path}")
 
 
 def main() -> None:
