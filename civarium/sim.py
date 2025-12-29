@@ -9,11 +9,13 @@ from dataclasses import dataclass, field
 from typing import Deque, Tuple
 
 import numpy as np
+import textwrap
 
 from .worldgen import MAP_W, MAP_H
 from .season import SeasonClock, Season
 
 LOG_H = 8
+LOG_W = 60
 PLAZA_R = 3
 FORUM = 1
 HOUSE = 2
@@ -61,8 +63,50 @@ class Actor:
 
 
 @dataclass
+class YearStats:
+    year: int = 1
+    ticks: int = 0
+
+    # economy tracking
+    food_sum: float = 0.0
+    food_min: float = 1e9
+    food_max: float = -1e9
+    wood_sum: float = 0.0
+    wood_min: float = 1e9
+    wood_max: float = -1e9
+
+    # population tracking
+    pop_peak: int = 0
+    deaths: int = 0
+    immigrants: int = 0
+
+    # events
+    events_started: int = 0
+
+    def record_tick(self, gs: "GameState") -> None:
+        self.ticks += 1
+
+        self.food_sum += gs.food
+        self.food_min = min(self.food_min, gs.food)
+        self.food_max = max(self.food_max, gs.food)
+
+        self.wood_sum += gs.wood
+        self.wood_min = min(self.wood_min, gs.wood)
+        self.wood_max = max(self.wood_max, gs.wood)
+
+        self.pop_peak = max(self.pop_peak, len(gs.actors))
+
+    def food_avg(self) -> float:
+        return self.food_sum / max(1, self.ticks)
+
+    def wood_avg(self) -> float:
+        return self.wood_sum / max(1, self.ticks)
+
+
+@dataclass
 class GameState:
     seed: int
+    year: int = 1
     tick: int = 0
     paused: bool = False
     tps: float = 10.0       # ticks per second
@@ -79,10 +123,15 @@ class GameState:
     farm_mult_mod: float = 1.0
     wood_mult_mod: float = 1.0
     consumption_mult_mod: float = 1.0
+    stats: YearStats = field(default_factory=YearStats)
 
 
 def add_log(gs: GameState, msg: str) -> None:
     gs.log.appendleft(msg)
+
+
+def wrap_log(text: str, width: int) -> list[str]:
+    return textwrap.wrap(text, width=width, replace_whitespace=False)
 
 
 def get_forum_pos(gs: GameState) -> tuple[int, int] | None:
@@ -572,6 +621,7 @@ def reset_run(gs: GameState, world: np.ndarray) -> None:
     gs.log.clear()
     gs.actors.clear()
     gs.buildings.clear()
+    gs.year = 1
 
     # reset economy
     gs.food = 80.0
@@ -584,6 +634,9 @@ def reset_run(gs: GameState, world: np.ndarray) -> None:
     gs.farm_mult_mod = 1.0
     gs.wood_mult_mod = 1.0
     gs.consumption_mult_mod = 1.0
+
+    # stats reset
+    gs.stats = YearStats(year=1)
 
     # Place Forum
     fx, fy = place_near_center_nonwater(gs, world)
@@ -621,7 +674,34 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
         return []
 
     gs.tick += 1
+
+    prev_season = gs.season.season
     gs.season.advance()
+    new_season = gs.season.season
+
+    # New year happens when winter -> spring
+    if prev_season == Season.WINTER and new_season == Season.SPRING:
+        # log previous year's summary before reseting
+        ys = gs.stats
+        houses = sum(1 for b in gs.buildings.values() if b == HOUSE)
+        farms = sum(1 for b in gs.buildings.values() if b == FARM)
+        lumbers = sum(1 for b in gs.buildings.values() if b == LUMBER)
+        garnaries = sum(1 for b in gs.buildings.values() if b == GARNARY)
+
+        summary = (
+            f"Year {ys.year} summary | pop_peak={ys.pop_peak} deaths={ys.deaths} "
+            f"imm={ys.immigrants} events={ys.events_started} "
+            f"food(avg/min/max)={ys.food_avg():.1f}/{ys.food_min:.1f}/{ys.food_max:.1f} "
+            f"wood(avg/min/max)={ys.wood_avg():.1f}/{ys.wood_min:.1f}/{ys.wood_max:.1f} "
+            f"bld(H/F/L/G)={houses}/{farms}/{lumbers}/{garnaries}"
+        )
+
+        for line in wrap_log(summary, width=LOG_W - 1):
+            add_log(gs, line)
+
+        # start new year
+        gs.year += 1
+        gs.stats = YearStats(year=gs.year)
 
     events: list[str] = []
 
@@ -636,16 +716,19 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
         # keep probabilities small; tune later
         if season == Season.SUMMER and rng.random() < 0.0010:
             _start_event(gs, "Drought", duration=60, farm_mult=0.6)
+            gs.stats.events_started += 1
             events.append("Event Started: Drought (farm yield reduced).")
 
         elif season == Season.AUTUMN and rng.random() < 0.0010:
             _start_event(gs, "Good Harvest", duration=40, farm_mult=1.6)
+            gs.stats.events_started += 1
             events.append("Event started: Good Harvest (farm yield boosted).")
 
         elif rng.random() < 0.0006:
             # Fire: small destructive shock (no modifier duration needed)
             # applying effect instantly and then run a short morale / consumption penalty.
             _start_event(gs, "Fire", duration=25, consumption_mult=1.05)
+            gs.stats.events_started += 1
             events.append("Event started: Fire!")
             # apply immediate damage
             _apply_fire(gs, rng, events)
@@ -775,6 +858,7 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
         # occasionally lose someone if starving
         if pop > 0 and rng.random() < 0.01:
             gs.actors.pop()
+            gs.stats.deaths += 1
             assign_farmers(gs, rng)
             events.append("Starvation: a peasant was lost.")
     else:
@@ -790,6 +874,7 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
        and staffed_farmer >= 1):
         fx, fy = forum if forum is not None else (MAP_W // 2, MAP_H // 2)
         gs.actors.append(Actor(x=fx, y=fy, glyph="@", fg=(230, 230, 230), home=None))
+        gs.stats.immigrants += 1
         assign_farmers(gs, rng)
         assing_lumberjacks(gs, rng)
         events.append("A newcomer arrived at the Forum.")
@@ -843,7 +928,7 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
     #     assign_farmers(gs, rng)
     #     farmers = sum(1 for a in gs.actors if a.role == "farmer")
     #     add_log(gs, f"Pop={pop} Farms={farms} Farmers={farmers} Staffed={staffed} Food={gs.food:.1f}")
-
+    gs.stats.record_tick(gs)
     return events
 
 
