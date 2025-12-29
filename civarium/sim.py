@@ -21,6 +21,7 @@ ROAD = 3
 FARM = 4
 LUMBER = 5
 GARNARY = 6
+BRIDGE = 7
 
 # -------------------
 # Costs
@@ -29,6 +30,7 @@ HOUSE_WOOD_COST = 8.0
 FARM_WOOD_COST = 4.0
 LUMBER_WOOD_COST = 2.0
 GARNARY_WOOD_COST = 10.0
+BRIDGE_WOOD_COST = 0.35
 
 BASE_FOOD_CAP = 120.0
 FOOD_CAP_PER_GARNARY = 80.0
@@ -99,12 +101,70 @@ def is_forest(world: np.ndarray, x: int, y: int) -> bool:
 
 
 def is_blocked(gs: GameState, world: np.ndarray, x: int, y: int) -> bool:
-    if is_water(world, x, y):
+    if is_water(world, x, y) and gs.buildings.get((x, y)) != BRIDGE:
         return True
     b = gs.buildings.get((x, y))
     if b is None:
         return False
-    return b == FORUM or b == HOUSE     # Roads are walkable
+    return b == FORUM or b == HOUSE     # Roads/Bridges are walkable
+
+
+def is_roadlike(gs: GameState, pos: tuple[int, int]) -> bool:
+    b = gs.buildings.get(pos)
+    return b == ROAD or b == BRIDGE
+
+
+def choose_step_toward(
+        gs: GameState,
+        world: np.ndarray,
+        rng: np.random.Generator,
+        ax: int,
+        ay: int,
+        target: tuple[int, int],
+) -> tuple[int, int]:
+    """
+    Pick the best next step among 4-neighbors:
+    - reduce Manhattan distance to target
+    - prefer road / bridge tiles slightly
+    """
+    tx, ty = target
+    cur_d = abs(ax - tx) + abs(ay - ty)
+
+    candidates: list[tuple[float, int, int, int]] = []
+    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        nx, ny = ax + dx, ay + dy
+        if not (0 <= nx < MAP_W and 0 <= ny < MAP_H):
+            continue
+        if is_blocked(gs, world, nx, ny):
+            continue
+
+        nd = abs(nx - tx) + abs(ny - ty)
+        # base score: closer is better
+        score = (cur_d - nd)
+
+        # road preference (small bias; still alows off-road shortcuts)
+        if is_roadlike(gs, (nx, ny)):
+            score += 0.25
+
+        # tiny noise to avoid ties producing rigid behavior
+        score += float(rng.random()) * 0.01
+
+        candidates.append((score, dx, dy, nd))
+
+    if not candidates:
+        return (0, 0)
+
+    # 1) Prefer moves that do not increase distance
+    non_worse = [c for c in candidates if c[3] <= cur_d]
+    pool = non_worse if non_worse else candidates
+
+    # 2) Choose best from pool
+    pool.sort(key=lambda t: t[0], reverse=True)
+    best_score = pool[0][0]
+
+    top = [c for c in pool if c[0] >= best_score - 0.001]
+    _, dx, dy, _ = top[int(rng.integers(0, len(top)))]
+    return (dx, dy)
 
 
 def assign_farmers(gs: GameState, rng: np.random.Generator) -> None:
@@ -192,8 +252,6 @@ def carve_road(gs: GameState, world: np.ndarray, a: tuple[int, int], b: tuple[in
         # Roads can go on empty lands, do not go through water or overwrite forum/houses
         if not (0 <= x < MAP_W and 0 <= y < MAP_H):
             return False
-        if is_water(world, x, y):
-            return False
         blk = gs.buildings.get((x, y))
         return blk not in (FORUM, HOUSE)
 
@@ -230,7 +288,21 @@ def carve_road(gs: GameState, world: np.ndarray, a: tuple[int, int], b: tuple[in
     for (x, y) in path:
         if (x, y) in (a, b):
             continue
-        if (x, y) not in gs.buildings:   # do not overwrite existing buildings
+
+        # Don't overwrite existing buildings (roads/bridges already fine)
+        if (x, y) in gs.buildings:
+            continue
+
+        if is_water(world, x, y):
+            # build bridge tile
+            if gs.wood >= BRIDGE_WOOD_COST:
+                gs.buildings[(x, y)] = BRIDGE
+                gs.wood -= BRIDGE_WOOD_COST
+            else:
+                # out of wood: stop carving further (prevents free bridges)
+                break
+
+        else:
             gs.buildings[(x, y)] = ROAD
 
 
@@ -480,6 +552,13 @@ def _apply_fire(gs: GameState, rng: np.random.Generator, out_events: list[str]) 
     pos, b = candidates[int(rng.integers(0, len(candidates)))]
     del gs.buildings[pos]
 
+    for a in gs.actors:
+        if a.work == pos:
+            a.work = None
+            if a.role in ("farmer", "lumberjack"):
+                a.role = "laborer"
+            a.work_timer = 0
+
     # morale hit
     gs.morale = (max(0.0, gs.morale - 0.1))
 
@@ -601,6 +680,9 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
             if forum is None:
                 target = a.home
             else:
+                if a.role == "laborer":
+                    fx, fy = forum
+                    target = (fx + rng.integers(-3, 4), fy + rng.integers(-3, 4))
                 target = a.home if (a.home is not None and phase >= 14) else forum
 
         if stick:
@@ -610,11 +692,17 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
                 dx = int(rng.integers(-1, 2))
                 dy = int(rng.integers(-1, 2))
             else:
-                tx, ty = target
-                dx = 0 if a.x == tx else (1 if a.x < tx else -1)
-                dy = 0 if a.y == ty else (1 if a.y < ty else -1)
+                # Prefer roads when a target exists
+                dx, dy = choose_step_toward(gs, world, rng, a.x, a.y, target)
 
-                # only random movement for non-farmers or outside thw work hours
+                # optional wobble when not actively working
+                if not (a.role in ("farmer", "lumberjack") and work_hours):
+                    if rng.random() < 0.25:
+                        dx = int(rng.integers(-1, 2))
+                    if rng.random() < 0.25:
+                        dy = int(rng.integers(-1, 2))
+
+                # only random movement for non-farmers or outside the work hours
                 if not (a.role == "farmer" and work_hours):
                     if rng.random() < 0.35:
                         dx = int(rng.integers(-1, 2))
@@ -634,13 +722,19 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
     # Count staffed farms: farmers currently standing on their assigned work tile.
     staffed_farmer = 0
     for a in gs.actors:
-        if a.role == "farmer" and a.work is not None and (a.x, a.y) == a.work:
+        if (a.role == "farmer"
+           and a.work is not None
+           and gs.buildings.get(a.work) == FARM
+           and (a.x, a.y) == a.work):
             staffed_farmer += 1
 
     # Count staffed lumbers
     staffed_lumber = 0
     for a in gs.actors:
-        if a.role == "lumberjack" and a.work is not None and (a.x, a.y) == a.work:
+        if (a.role == "lumberjack"
+           and a.work is not None
+           and gs.buildings.get(a.work) == LUMBER
+           and (a.x, a.y) == a.work):
             staffed_lumber += 1
 
     # Overall Staffed

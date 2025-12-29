@@ -8,7 +8,7 @@ from __future__ import annotations
 import numpy as np
 import tcod
 
-from .sim import GameState
+from .sim import GameState, is_roadlike
 from .worldgen import MAP_W, MAP_H
 
 PANEL_W = 30
@@ -44,6 +44,8 @@ BUILDING_GLYPHS = {
     4: ("░", (120, 200, 120)),      # Farm
     5: ("£", (160, 120, 80)),       # Lumber Camp
     6: ("Θ", (200, 170, 90)),       # Garnary
+    7: ("=", (170, 170, 210)),      # Bridge
+
 }
 
 ROAD_GLYPHS = {
@@ -60,6 +62,46 @@ ROAD_GLYPHS = {
     "t_right": "├",
 
 }
+
+
+def roadlike_glyph(gs, x: int, y: int) -> str:
+    n = is_roadlike(gs, (x, y - 1))
+    s = is_roadlike(gs, (x, y + 1))
+    w = is_roadlike(gs, (x - 1, y))
+    e = is_roadlike(gs, (x + 1, y))
+
+    # All four
+    if n and s and w and e:
+        return "╬"
+
+    # T junctions
+    if n and s and w:
+        return "╣"
+    if n and s and e:
+        return "╠"
+    if n and w and e:
+        return "╩"
+    if s and w and e:
+        return "╦"
+
+    # Corners
+    if s and e:
+        return "╔"
+    if s and w:
+        return "╗"
+    if n and e:
+        return "╚"
+    if n and w:
+        return "╝"
+
+    # Straights
+    if n or s:
+        return "║"
+    if w or e:
+        return "═"
+
+    # Isolated (should be rare)
+    return "═"
 
 
 def tint(rgb: tuple[int, int, int], mul: float) -> tuple[int, int, int]:
@@ -173,6 +215,9 @@ def render(console: tcod.console.Console, world: np.ndarray, gs: GameState) -> N
         if b == 3:
             ch = road_glyph(gs, x, y)
             console.print(x, y, ch, fg=BUILDING_GLYPHS[b][1])
+        elif b == 7:
+            ch = roadlike_glyph(gs, x, y)
+            console.print(x, y, ch, fg=BUILDING_GLYPHS[b][1])
         else:
             ch, fg = BUILDING_GLYPHS[b]
             console.print(x, y, ch, fg=fg)
@@ -207,6 +252,13 @@ def render(console: tcod.console.Console, world: np.ndarray, gs: GameState) -> N
 
     # Calculations - Right panel
     garnaries = sum(1 for b in gs.buildings.values() if b == 6)
+    houses = sum(1 for b in gs.buildings.values() if b == 2)
+    farms = sum(1 for b in gs.buildings.values() if b == 4)
+    lumber_camps = sum(1 for b in gs.buildings.values() if b == 5)
+    farmers = sum(1 for a in gs.actors if a.role == "farmer")
+    laborer = sum(1 for a in gs.actors if a.role == "laborer")
+    lumber_jack = sum(1 for a in gs.actors if a.role == "lumberjack")
+    pop = len(gs.actors)
     food_cap = 120.0 + 80.0 * garnaries
     event_str = "-" if not gs.active_event else f"{gs.active_event} ({gs.event_ticks_left})"
 
@@ -221,35 +273,37 @@ def render(console: tcod.console.Console, world: np.ndarray, gs: GameState) -> N
     console.print(px, 5, f"Paused: {gs.paused}", fg=UI["text_fg"])
     console.print(px, 6, f"Speed: {gs.tps:.1f} tps", fg=UI["text_fg"])
     console.print(px, 7, f"Food: {gs.food:6.1f} / {food_cap:5.0f}", fg=UI["text_fg"])
-    console.print(px, 8, f"Garnaries: {garnaries}", fg=UI["text_fg"])
+    console.print(px, 8, f"Wood: {gs.wood:6.1f}", fg=UI["text_fg"])
     console.print(px, 9, f"Morale: {gs.morale:.2f}", fg=UI["text_fg"])
-    console.print(px, 10, f"Wood: {gs.wood:6.1f}", fg=UI["text_fg"])
 
-    console.print(px, 12, "Controls:", fg=UI["title_fg"])
-    console.print(px, 13, "Space: pause", fg=UI["muted_fg"])
-    console.print(px, 14, "+/- : speed", fg=UI["muted_fg"])
-    console.print(px, 15, "Arrows: cursor", fg=UI["muted_fg"])
-    console.print(px, 16, "R: restart", fg=UI["muted_fg"])
-    console.print(px, 17, "Q: quit", fg=UI["muted_fg"])
+    console.print(px, 11, f"Pop: {pop} (F:{farmers} L:{lumber_jack} U:{laborer})", fg=UI["text_fg"])
+    console.print(px, 12, f"Bld: H={houses} F={farms} L={lumber_camps} G={garnaries}", fg=UI["text_fg"])
 
-    console.print(px, 18, "Inspect:", fg=UI["title_fg"])
+    console.print(px, 14, "Controls:", fg=UI["title_fg"])
+    console.print(px, 15, "Space: pause", fg=UI["muted_fg"])
+    console.print(px, 16, "+/- : speed", fg=UI["muted_fg"])
+    console.print(px, 17, "Arrows: cursor", fg=UI["muted_fg"])
+    console.print(px, 18, "R: restart", fg=UI["muted_fg"])
+    console.print(px, 19, "Q: quit", fg=UI["muted_fg"])
+
+    console.print(px, 20, "Inspect:", fg=UI["title_fg"])
     if 0 <= cx < MAP_W and 0 <= cy < MAP_H:
         b = gs.buildings.get((cx, cy))
         if b is not None:
             bname = {1: "Forum", 2: "House", 3: "Road",
                      4: "Farm", 5: "Lumber Camp", 6: "Garnary"}.get(b, "Building")
-            console.print(px, 19, f"({cx},{cy}) {bname}", fg=UI["text_fg"])
+            console.print(px, 21, f"({cx},{cy}) {bname}", fg=UI["text_fg"])
         else:
             code = int(world[cy, cx])
             tname = {0: "Plains", 1: "Forest", 2: "Water", 3: "Hill"}.get(code, "Unknown")
-            console.print(px, 19, f"({cx},{cy}) {tname}", fg=UI["text_fg"])
+            console.print(px, 21, f"({cx},{cy}) {tname}", fg=UI["text_fg"])
         here = [a for a in gs.actors if (a.x, a.y) == (cx, cy)]
         if here:
             roles: dict[str, int] = {}
             for a in here:
                 roles[a.role] = roles.get(a.role, 0) + 1
             role_str = ", ".join(f"{k}:{v}" for k, v in roles.items())
-            console.print(px, 19, f"Actors: {len(here)} ({role_str})", fg=UI["muted_fg"])
+            console.print(px, 22, f"Actors: {len(here)} ({role_str})", fg=UI["muted_fg"])
 
     # Bottom log
     log_y = MAP_H

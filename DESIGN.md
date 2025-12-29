@@ -33,7 +33,6 @@
 
 ## Self notes
 - farms and houses are built across the rivers have no access and farmers cannot reach them.
-- make the working hours dynamic, based on the given situation of the village.
 - ticks or days should be refactored. for instance farmers are not reaching home and new day starts for them. maybe we could use other peasants for the other purposes.
 - people should follow roads prefarably, when a road is available.
 - add information to the side, for instance how many peasants are there, how many are farmers and how many are peasants and classes.
