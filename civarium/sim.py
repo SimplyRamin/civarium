@@ -12,7 +12,7 @@ import numpy as np
 import textwrap
 
 from .worldgen import MAP_W, MAP_H
-from .season import SeasonClock, Season
+from .season import SeasonClock, Season, TICKS_PER_SEASON, SEASONS
 
 LOG_H = 8
 LOG_W = 60
@@ -39,6 +39,8 @@ FOOD_CAP_PER_GARNARY = 80.0
 SPOILAGE_RATE = 0.04  # % of food that spoils per tick
 WOOD_RESERVE = 6.0
 
+YEAR_TICKS = len(SEASONS) * TICKS_PER_SEASON
+
 FARM_MULT = {
     Season.SPRING: 0.5,
     Season.SUMMER: 1.0,
@@ -60,6 +62,10 @@ class Actor:
     role: str = "laborer"                   # laborer or farmer or lumber
     work: tuple[int, int] | None = None     # farm tile if farmer
     work_timer: int = 0
+    age_ticks: int = 0
+    lifespan_ticks: int = 0
+    patrol_target: tuple[int, int] | None = None
+    patrol_timer: int = 0
 
 
 @dataclass
@@ -265,6 +271,69 @@ def assing_lumberjacks(gs: GameState, rng: np.random.Generator) -> None:
         a.work = camps[int(rng.integers(0, len(camps)))]
 
 
+def assign_guard(gs: GameState, rng: np.random.Generator) -> None:
+    forum = get_forum_pos(gs)
+    if forum is None:
+        return
+
+    # safety gates (avoid collapsing farming/wood)
+    if gs.food < 60 or gs.wood < 10:
+        return
+
+    laborers = [a for a in gs.actors if a.role == "laborer"]
+    if not laborers:
+        return
+
+    # keep guard count small + proportional
+    target = min(4, max(0, len(laborers) // 12))
+    current = sum(1 for a in gs.actors if a.role == "guard")
+    need = max(0, target - current)
+    if need <= 0:
+        return
+
+    rng.shuffle(laborers)
+    for a in laborers[:need]:
+        a.role = "guard"
+        a.work = None
+        a.work_timer = 0
+        a.patrol_target = None
+        a.patrol_timer = 0
+        assign_lifespan(rng, a)     # guards die a bit earlier
+
+
+def pick_patrol_target(gs: GameState, world: np.ndarray, rng: np.random.Generator,
+                       center: tuple[int, int], radius: int = 12) -> tuple[int, int]:
+    cx, cy = center
+
+    # prefer road/bridge tiles in the village
+    best: list[tuple[int, int]] = []
+    for _ in range(60):
+        x = int(rng.integers(max(0, cx - radius), min(MAP_W, cx + radius + 1)))
+        y = int(rng.integers(max(0, cy - radius), min(MAP_H, cy + radius + 1)))
+        if is_blocked(gs, world, x, y):
+            continue
+        if is_roadlike(gs, (x, y)):
+            best.append((x, y))
+            if len(best) >= 8:
+                break
+
+    if best:
+        return best[int(rng.integers(0, len(best)))]
+
+    # fallback: any walkable near forum
+    return (cx, cy)
+
+
+def assign_lifespan(rng: np.random.Generator, a: Actor) -> None:
+    if a.role == "guard":
+        lo, hi = 6 * YEAR_TICKS, 11 * YEAR_TICKS
+    else:
+        lo, hi = 8 * YEAR_TICKS, 14 * YEAR_TICKS
+
+    a.age_ticks = 0
+    a.lifespan_ticks = int(rng.integers(lo, hi))
+
+
 def place_near_center_nonwater(gs: GameState, world: np.ndarray) -> tuple[int, int]:
     cx, cy = MAP_W // 2, MAP_H // 2
     for r in range(10):
@@ -383,7 +452,9 @@ def spawn_peasants(gs: GameState, world: np.ndarray, n: int | None = None) -> No
             x = int(cx + rng.integers(-6, 7))
             y = int(cy + rng.integers(-6, 7))
             if 0 <= x < MAP_W and 0 <= y < MAP_H and int(world[y, x]) != 2:     # not water
-                gs.actors.append(Actor(x=x, y=y, glyph="@", fg=(230, 230, 230)))
+                a = Actor(x=x, y=y, glyph='@', fg=(230, 230, 230))
+                assign_lifespan(rng, a)
+                gs.actors.append(a)
                 break
 
 
@@ -737,9 +808,27 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
     # simple day cycle of 20 ticks
     phase = gs.tick % 20
     work_hours = 2 <= phase <= 17
+    to_remove: list[Actor] = []
     for a in gs.actors:
+        a.age_ticks += 1
+        if a.lifespan_ticks > 0 and a.age_ticks >= a.lifespan_ticks:
+            to_remove.append(a)
+            continue
         stick = False
         target = None
+        # guard patrol
+        if a.role == "guard" and forum is not None:
+            a.patrol_timer -= 1
+            if a.patrol_target is None or a.patrol_timer <= 0 or (a.x, a.y) == a.patrol_target:
+                a.patrol_target = pick_patrol_target(gs, world, rng, forum, radius=12)
+                a.patrol_timer = int(rng.integers(25, 60))
+
+            dx, dy = choose_step_toward(gs, world, rng, a.x, a.y, a.patrol_target)
+            nx, ny = a.x + dx, a.y + dy
+            if 0 <= nx < MAP_W and 0 <= ny < MAP_H and not is_blocked(gs, world, nx, ny):
+                a.x, a.y = nx, ny
+            continue
+
         if a.role in ("farmer", "lumberjack") and a.work is not None:
             # decie if actor should be working now or not
             want_work = work_hours or (gs.food < 15)
@@ -796,6 +885,24 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
         if 0 <= nx < MAP_W and 0 <= ny < MAP_H and not is_blocked(gs, world, nx, ny):
             a.x, a.y = nx, ny
 
+    if to_remove:
+        for dead in to_remove:
+            # free job
+            dead.work = None
+            if dead.role in ("farmer", "lumberjack", "guard"):
+                dead.role = "laborer"
+            dead.work_timer = 0
+
+            if dead in gs.actors:
+                gs.actors.remove(dead)
+
+            gs.stats.deaths += 1
+            gs.morale = max(0.0, gs.morale - 0.01)
+
+        # rebalance jobs
+        assign_farmers(gs, rng)
+        assing_lumberjacks(gs, rng)
+
     # Economy
     # -----------------------------
 
@@ -838,6 +945,20 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
     food_cap = BASE_FOOD_CAP + garnaries * FOOD_CAP_PER_GARNARY
     desired_farms = max(1, pop // 4)
 
+    # heating / wood burn
+    # baseline burn per person per tick
+    wood_burn = 0.01 * pop
+
+    # winter is harsh
+    if season == Season.WINTER:
+        wood_burn *= 3.0
+
+    gs.wood = max(0.0, gs.wood - wood_burn)
+
+    # winter penalty if no wood (cold)
+    if season == Season.WINTER and gs.wood <= 0.0:
+        gs.morale = max(0.0, gs.morale - 0.01)
+
     # Spoilage
     if gs.food > food_cap:
         excess = gs.food - food_cap
@@ -857,9 +978,18 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
         gs.morale = max(0.0, gs.morale - 0.02)
         # occasionally lose someone if starving
         if pop > 0 and rng.random() < 0.01:
-            gs.actors.pop()
+            i = int(rng.integers(0, len(gs.actors)))
+            dead = gs.actors.pop(i)
+
+            if dead.work is not None:
+                for a in gs.actors:
+                    # nothing to do here; work tiles persits
+                    pass
+
             gs.stats.deaths += 1
+            gs.morale = max(0.0, gs.morale - 0.1)
             assign_farmers(gs, rng)
+            assing_lumberjacks(gs, rng)
             events.append("Starvation: a peasant was lost.")
     else:
         gs.morale = min(1.0, gs.morale + 0.005)
@@ -873,7 +1003,9 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
        and rng.random() < 0.02
        and staffed_farmer >= 1):
         fx, fy = forum if forum is not None else (MAP_W // 2, MAP_H // 2)
-        gs.actors.append(Actor(x=fx, y=fy, glyph="@", fg=(230, 230, 230), home=None))
+        new_a = Actor(x=fx, y=fy, glyph='@', fg=(230, 230, 230), home=None)
+        assign_lifespan(rng, new_a)
+        gs.actors.append(new_a)
         gs.stats.immigrants += 1
         assign_farmers(gs, rng)
         assing_lumberjacks(gs, rng)
@@ -883,7 +1015,20 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
         forum = get_forum_pos(gs)
         if forum is not None:
             built = False
-            # Priority 1: if housing is tight, built a house.
+            # Priority 1: wood security (heating + building buffer)
+            # if we have no lumber camp, or wood is too low for our population, build lumber
+            wood_floor = 6.0                        # always keep at least this much
+            wood_per_pop = 0.25                     # buffer per person
+            winter_mult = 2.0 if winter else 1.0    # need more buffer in winter
+            desired_wood = max(wood_floor, wood_per_pop * pop * winter_mult)
+
+            if lumbers < 1 or gs.wood < desired_wood:
+                if gs.wood >= LUMBER_WOOD_COST and try_build_lumber(gs, world, forum, rng):
+                    events.append("Built a lumber camp.")
+                else:
+                    events.append("Need wood for lumber camp.")
+
+            # Priority 2: if housing is tight, built a house.
             if pop >= capacity - 1:
                 if gs.wood >= HOUSE_WOOD_COST:
                     built = try_build_house(gs, world, forum)
@@ -897,7 +1042,7 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
                     else:
                         events.append("Need wood for housing.")
 
-            # Priority 2: food pressure -> try farm, else get wood.
+            # Priority 3: food pressure -> try farm, else get wood.
             elif (not winter) and gs.food < 60 and farms < desired_farms:
                 if gs.wood >= FARM_WOOD_COST:
                     built = try_build_farm(gs, world, forum, rng)
@@ -911,7 +1056,7 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
                     else:
                         events.append("Need wood for farms.")
 
-            # Priority 3: if food is near/at cap, build storage (stop waste).
+            # Priority 4: if food is near/at cap, build storage (stop waste).
             elif (gs.food >= 0.92 * food_cap
                   and gs.wood >= GARNARY_WOOD_COST + WOOD_RESERVE
                   and lumbers >= 1
@@ -924,10 +1069,11 @@ def update(gs: GameState, world: np.ndarray) -> list[str]:
                 else:
                     events.append("Garnary build failed.")
 
-    # if gs.tick % 50 == 0:
-    #     assign_farmers(gs, rng)
-    #     farmers = sum(1 for a in gs.actors if a.role == "farmer")
-    #     add_log(gs, f"Pop={pop} Farms={farms} Farmers={farmers} Staffed={staffed} Food={gs.food:.1f}")
+    if gs.tick % 50 == 0:
+        # assign_farmers(gs, rng)
+        # farmers = sum(1 for a in gs.actors if a.role == "farmer")
+        # add_log(gs, f"Pop={pop} Farms={farms} Farmers={farmers} Staffed={staffed} Food={gs.food:.1f}")
+        assign_guard(gs, rng)
     gs.stats.record_tick(gs)
     return events
 

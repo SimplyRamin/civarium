@@ -76,6 +76,9 @@ def run_headless(seed: int | None, years: int, max_ticks: int | None, print_all:
     last_year_printed = 0
 
     while gs.year <= years:
+        prev_year = gs.year
+        prev_stats = gs.stats
+
         msgs = update(gs, world)
         ticks += 1
 
@@ -95,15 +98,14 @@ def run_headless(seed: int | None, years: int, max_ticks: int | None, print_all:
 
         # small protection: avoid infinite loops if year counts breaks
         if gs.year != last_year_printed:
-            ys = gs.stats   # stats were reset for the *new* year, so we want previous
-            prev_year = gs.year - 1
+            ys = prev_stats   # stats were reset for the *new* year, so we want previous
 
             # snapshot building
-            houses = sum(1 for b in gs.buildings.values() if b == 1)        # HOUSE
-            farms = sum(1 for b in gs.buildings.values() if b == 2)         # FARM
+            houses = sum(1 for b in gs.buildings.values() if b == 2)        # HOUSE
+            farms = sum(1 for b in gs.buildings.values() if b == 4)         # FARM
             roads = sum(1 for b in gs.buildings.values() if b == 3)         # ROAD
-            lumbers = sum(1 for b in gs.buildings.values() if b == 4)       # LUMBER
-            garnaries = sum(1 for b in gs.buildings.values() if b == 5)     # GARNARY
+            lumbers = sum(1 for b in gs.buildings.values() if b == 5)       # LUMBER
+            garnaries = sum(1 for b in gs.buildings.values() if b == 6)     # GARNARY
             bridges = sum(1 for b in gs.buildings.values() if b == 7)       # BRIDGE (if you kept 7)
 
             year_rows.append({

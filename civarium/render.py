@@ -229,6 +229,9 @@ def render(console: tcod.console.Console, world: np.ndarray, gs: GameState) -> N
             fg = (230, 210, 120)
         if getattr(a, "role", "laborer") == "lumberjack":
             fg = (200, 170, 140)
+        if getattr(a, "role", "laborer") == "guard":
+            a.glyph = 'Ω'
+            fg = (210, 210, 120)
         console.print(a.x, a.y, a.glyph, fg=fg)
 
     # Cursor highlight
