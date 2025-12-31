@@ -326,9 +326,9 @@ def pick_patrol_target(gs: GameState, world: np.ndarray, rng: np.random.Generato
 
 def assign_lifespan(rng: np.random.Generator, a: Actor) -> None:
     if a.role == "guard":
-        lo, hi = 6 * YEAR_TICKS, 11 * YEAR_TICKS
+        lo, hi = 12 * YEAR_TICKS, 22 * YEAR_TICKS
     else:
-        lo, hi = 8 * YEAR_TICKS, 14 * YEAR_TICKS
+        lo, hi = 16 * YEAR_TICKS, 28 * YEAR_TICKS
 
     a.age_ticks = 0
     a.lifespan_ticks = int(rng.integers(lo, hi))
