@@ -76,7 +76,7 @@ Optional:
 * `--max-ticks` safety cap  
 
 ## Controls
-* Arrow keys / mouse: move cursor / inspect
+* Arrow keys : move cursor / inspect
 * `Space`: pause / resume
 * `+` / `-`: speed up / slow down
 * `R`: restart (new seed / new world)
