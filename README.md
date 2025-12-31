@@ -7,7 +7,7 @@ Once a world is created, it runs on its own.
 You do not rule the settlement.
 You **witness** it.
 
----
+
 
 ## What Civarium Is
 
@@ -28,7 +28,7 @@ Your role is to:
 
 Nothing more.
 
----
+
 
 ## What Civarium Is Not
 
@@ -50,7 +50,7 @@ You cannot:
 
 All outcomes are consequences of the system itself.
 
----
+
 
 ## Requirements  
 ### Install  
@@ -82,7 +82,7 @@ Optional:
 * `R`: restart (new seed / new world)
 * `Q` / `Esc`: quit  
 
----
+
 
 ## Design Philosophy
 
@@ -101,7 +101,7 @@ Collapse is not a bug.
 
 They are valid system states.
 
----
+
 
 ## Current Status
 
@@ -117,7 +117,7 @@ Future versions will focus on:
 
 Not on player control.
 
----
+
 
 ## License
 
